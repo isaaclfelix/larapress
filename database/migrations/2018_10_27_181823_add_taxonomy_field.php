@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Migrations\Migration;
 
-class PostmetaRename extends Migration
+class AddTaxonomyField extends Migration
 {
     /**
      * Run the migrations.
@@ -14,7 +14,11 @@ class PostmetaRename extends Migration
     public function up()
     {
         //
-        Schema::rename('postmetas', 'postmeta');
+        Schema::table('posts', function (Blueprint $table) {
+            // Taxonomy field
+            // Relations
+            $table->bigInteger('taxonomy')->unsigned();
+        });
     }
 
     /**
@@ -25,6 +29,10 @@ class PostmetaRename extends Migration
     public function down()
     {
         //
-        Schema::rename('postmeta', 'postmetas');
+        Schema::table('posts', function(Blueprint $table) {
+            $table->dropColumn([
+                'taxonomy'
+            ]);
+        });
     }
 }
