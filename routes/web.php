@@ -24,15 +24,16 @@ Route::prefix('admin')->group(function() {
     Route::get('/dashboard', 'DashboardController@dashboard')->name('dashboard');
 
     // Posts panel route
-    Route::get('/posts', 'DashboardController@posts')->name('posts');
+    Route::get('/posts/{type?}/{s?}', 'DashboardController@posts')->name('posts');
+
     // Posts CRUD routes
     Route::post('/post', 'PostController@create')->name('post'); // Create
     Route::get('/post/{type?}/{id}', 'PostController@read')->name('post'); // Read
     Route::patch('/post', 'PostController@update')->name('post'); // Update
     Route::delete('/post', 'PostController@delete')->name('post'); // Delete
 
-    // Posts Create or Update form
-    Route::get('/posts/editor/{post_type?}/{post_id?}', 'PostController@editor')->name('crud');
+    // Editor
+    Route::get('/editor/{post_type?}/{post_id?}', 'PostController@editor')->name('editor');
 
     // Profile panel route
     Route::get('/profile', 'DashboardController@profile')->name('profile');

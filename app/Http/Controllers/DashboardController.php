@@ -1,7 +1,8 @@
 <?php
-
 namespace App\Http\Controllers;
 
+use App\Post;
+use App\Posttype;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -41,9 +42,13 @@ class DashboardController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function posts()
+    public function posts($post_type = 'post')
     {
-        return view('dashboard.posts');
+        $data = array(
+            //'type' => \App\Posttype::where('name', $post_type)->first()->id
+            'type' => \App\Posttype::where('name', $post_type)->first()->name
+        );
+        return view('dashboard.posts', $data);
     }
 
     /**

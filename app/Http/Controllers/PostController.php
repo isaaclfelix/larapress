@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Post;
+use App\Posttype;
 use Illuminate\Http\Request;
 
 class PostController extends Controller
@@ -134,9 +135,10 @@ class PostController extends Controller
      */
     public function editor(Request $request, $post_type = 'post', $post_id = 0) {
         // TODO: Find a way to validate post type and post id before any of this
+
         $data = array(
             'update' => false,
-            'type' => $post_type
+            'type' => \App\Posttype::where('name', $post_type)->first()->id
         );
         if ($post_id !== 0) {
             $data['update'] = true;

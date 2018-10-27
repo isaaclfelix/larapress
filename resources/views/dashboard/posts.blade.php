@@ -18,8 +18,8 @@ $posts = App\Post::all();
         </ul>
     </div>
 @endif
-<h1>Posts</h1>
-<a href="{{ route('crud') }}" class="btn btn-primary"><i class="fa fa-plus"></i> Add New Post</a>
+<h1><?php echo $type; ?></h1>
+<a href="{{ route('editor') }}" class="btn btn-primary"><i class="fa fa-plus"></i> Add New Post</a>
 
 <table class="table table-striped mt-3">
   <thead>
