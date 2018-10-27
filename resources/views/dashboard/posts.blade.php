@@ -18,15 +18,16 @@ $posts = App\Post::all();
         </ul>
     </div>
 @endif
-<h1><?php echo $type; ?></h1>
-<a href="{{ route('editor') }}" class="btn btn-primary"><i class="fa fa-plus"></i> Add New Post</a>
+
+<h1>All {{ $labels['plural'] }}</h1>
+<a href="{{ route('editor', $post_type) }}" class="btn btn-primary"><i class="fa fa-plus"></i> Add New {{ $labels['singular'] }}</a>
 
 <table class="table table-striped mt-3">
   <thead>
     <tr>
-      <th scope="col">Post ID</th>
-      <th scope="col">Post Title</th>
-      <th scope="col">Post Route</th>
+      <th scope="col">{{ $labels['singular'] }} ID</th>
+      <th scope="col">{{ $labels['singular'] }} Title</th>
+      <th scope="col">{{ $labels['singular'] }} Route</th>
       <th scope="col">Delete</th>
     </tr>
   </thead>

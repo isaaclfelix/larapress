@@ -26,6 +26,9 @@ Route::prefix('admin')->group(function() {
     // Posts panel route
     Route::get('/posts/{type?}/{s?}', 'DashboardController@posts')->name('posts');
 
+    Route::get('/pages/{s?}', 'DashboardController@pages')->name('pages');
+    Route::get('/media/{s?}', 'DashboardController@media')->name('media');
+
     // Posts CRUD routes
     Route::post('/post', 'PostController@create')->name('post'); // Create
     Route::get('/post/{type?}/{id}', 'PostController@read')->name('post'); // Read
@@ -37,4 +40,7 @@ Route::prefix('admin')->group(function() {
 
     // Profile panel route
     Route::get('/profile', 'DashboardController@profile')->name('profile');
+
+    // Settings panel route
+    Route::get('/settings', 'DashboardController@settings')->name('settings');
 });

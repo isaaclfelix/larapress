@@ -18,6 +18,11 @@ if ($update) {
     $excerpt = $post->excerpt;
 }
 */
+$labels = null;
+$post_type_meta = App\Posttypesmeta::where('posttype_id', $post_type->id);
+if ($post_type_meta !== null && $post_type_meta->count()) {
+    $labels = json_decode(json_decode($post_type_meta->first())->meta_value, true);
+}
 ?>
 @extends('layouts.dashboard')
 
@@ -37,9 +42,9 @@ if ($update) {
     </div>
 @endif
 @if ($update)
-<h1>Edit Post</h1>
+<h1>Edit {{ $labels['singular'] }}</h1>
 @else
-<h1>Add New Post</h1>
+<h1>Add New {{ $labels['singular'] }}</h1>
 @endif
 
 <form id="add-new-post" method="POST" action="{{ route('post') }}">
@@ -59,7 +64,7 @@ if ($update) {
         id: 0,
         parent: 0,
         author: 0,
-        type: "<?php echo $type; ?>", // Change this for non harcoded post type
+        type: "<?php echo $post_type->id; ?>", // Change this for non harcoded post type
         status: "publish",
         // Post contents
         title: "",

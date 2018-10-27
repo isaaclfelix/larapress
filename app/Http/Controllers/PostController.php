@@ -135,14 +135,24 @@ class PostController extends Controller
      */
     public function editor(Request $request, $post_type = 'post', $post_id = 0) {
         // TODO: Find a way to validate post type and post id before any of this
-
+        $post_type = \App\Posttype::where('name', $post_type);
+        if ($post_type === null || !$post_type->count()) {
+            return redirect()->route('posts')->with('message', 'Post type doesnt exist');
+        }
+        $post_type = $post_type->first();
         $data = array(
             'update' => false,
-            'type' => \App\Posttype::where('name', $post_type)->first()->id
+            'post_type' => $post_type
         );
         if ($post_id !== 0) {
-            $data['update'] = true;
-            $data['post'] = \App\Post::find($post_id);
+            $post = \App\Post::find($post_id);
+            if ($post !== null && $post->count()) {
+                $data['update'] = true;
+                $data['post'] = $post->first();
+            }
+            else {
+                return redirect()->route('posts', $post_type->name)->with('message', "Post doesn't exist");
+            }
         }
         return view('crud.editor', $data);
     }
