@@ -21,6 +21,16 @@ class DashboardController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
+    public function root()
+    {
+        return redirect()->route('dashboard');
+    }
+
+    /**
+     * Show the root of the dashboard in the application dashboard.
+     *
+     * @return \Illuminate\Http\Response
+     */
     public function dashboard()
     {
         return view('dashboard.home');

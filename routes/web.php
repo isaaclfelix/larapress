@@ -19,23 +19,20 @@ Auth::routes();
 Route::prefix('admin')->group(function() {
     // Panel Route
     //Route::get('/[route-name]', 'DashboardController@[route-name]')->name('[route-name]')
-
+    Route::get('/', 'DashboardController@root')->name('root');
     // Dashboard panel route
     Route::get('/dashboard', 'DashboardController@dashboard')->name('dashboard');
 
     // Posts panel route
     Route::get('/posts', 'DashboardController@posts')->name('posts');
     // Posts CRUD routes
-    Route::post('/post', 'PostController@create')->name('post');
-    Route::get('/post/{id}', 'PostController@read')->name('post');
-    Route::patch('/post', 'PostController@update')->name('post');
-    Route::delete('/post', 'PostController@delete')->name('post');
+    Route::post('/post', 'PostController@create')->name('post'); // Create
+    Route::get('/post/{type?}/{id}', 'PostController@read')->name('post'); // Read
+    Route::patch('/post', 'PostController@update')->name('post'); // Update
+    Route::delete('/post', 'PostController@delete')->name('post'); // Delete
 
-    // Clients panel route
-    Route::get('/clients', 'DashboardController@clients')->name('clients');
-
-    // Posts form
-    Route::get('/form/{post_type?}/{post_id?}', 'PostController@form')->name('crud');
+    // Posts Create or Update form
+    Route::get('/posts/editor/{post_type?}/{post_id?}', 'PostController@editor')->name('crud');
 
     // Profile panel route
     Route::get('/profile', 'DashboardController@profile')->name('profile');

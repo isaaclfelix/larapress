@@ -128,18 +128,19 @@ class PostController extends Controller
     }
 
     /**
-     * Form for adding a new content
+     * Editor for adding a new content or updating existing contents
      *
      * @return \Illuminate\Http\Response
      */
-    public function form($post_type = 'post', $post_id = 0) {
+    public function editor(Request $request, $post_type = 'post', $post_id = 0) {
+        // TODO: Find a way to validate post type and post id before any of this
         $data = array(
-            'update' => false
+            'update' => false,
+            'type' => $post_type
         );
         if ($post_id !== 0) {
             $data['update'] = true;
             $data['post'] = \App\Post::find($post_id);
-            return view('crud.form', $data);
         }
         return view('crud.form', $data);
     }

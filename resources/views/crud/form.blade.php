@@ -54,11 +54,12 @@ if ($update) {
     </script>
     @else
     <script>
+    // TODO: Change this for non hardcoded values
     var post = {
         id: 0,
         parent: 0,
         author: 0,
-        type: "post",
+        type: "<?php echo $type; ?>", // Change this for non harcoded post type
         status: "publish",
         // Post contents
         title: "",
