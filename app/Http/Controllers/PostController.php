@@ -142,7 +142,7 @@ class PostController extends Controller
             $data['update'] = true;
             $data['post'] = \App\Post::find($post_id);
         }
-        return view('crud.form', $data);
+        return view('crud.editor', $data);
     }
 }
 
