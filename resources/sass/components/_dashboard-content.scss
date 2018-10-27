@@ -1,0 +1,6 @@
+#dashboard-content {
+  padding-left: 65px;
+  @include media-breakpoint-up(lg) {
+    padding-left: 15px;
+  }
+}
