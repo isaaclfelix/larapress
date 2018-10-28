@@ -19,9 +19,21 @@ if ($update) {
 }
 */
 $labels = null;
-$post_type_meta = App\Posttypesmeta::where('posttype_id', $post_type->id);
+$post_type_meta = App\Posttypesmeta::where([
+    ['posttype_id', '=', $post_type->id],
+    ['meta_key', '=', 'options'],
+]);
+$supports = array(
+    'title',
+    'editor',
+    'excerpt'
+);
 if ($post_type_meta !== null && $post_type_meta->count()) {
-    $labels = json_decode(json_decode($post_type_meta->first())->meta_value, true);
+    //$labels = json_decode(json_decode($post_type_meta->first())->meta_value, true)['labels'];
+    $post_type_meta = $post_type_meta->first();
+    $meta_value = json_decode($post_type_meta->meta_value, true);
+    $labels = $meta_value['labels'];
+    $supports = $meta_value['supports'];
 }
 ?>
 @extends('layouts.dashboard')

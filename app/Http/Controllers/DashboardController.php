@@ -67,10 +67,10 @@ class DashboardController extends Controller
         }
         $post_type_meta = \App\Posttypesmeta::where([
             ['posttype_id', '=', $post_type_id],
-            ['meta_key', '=', 'labels']
+            ['meta_key', '=', 'options']
         ]);
         if ($post_type_meta !== null && $post_type_meta->count()) {
-            $labels = json_decode($post_type_meta->first()->meta_value, true);
+            $labels = json_decode($post_type_meta->first()->meta_value, true)['labels'];
         }
         $data = array(
             'labels' => $labels,
@@ -95,10 +95,10 @@ class DashboardController extends Controller
         $post_type_id = $post_type->id;
         $post_type_meta = \App\Posttypesmeta::where([
             ['posttype_id', '=', $post_type_id],
-            ['meta_key', '=', 'labels']
+            ['meta_key', '=', 'options']
         ]);
         if ($post_type_meta !== null && $post_type_meta->count()) {
-            $labels = json_decode($post_type_meta->first()->meta_value, true);
+            $labels = json_decode($post_type_meta->first()->meta_value, true)['labels'];
         }
         $data = array(
             'labels' => $labels,
@@ -123,10 +123,10 @@ class DashboardController extends Controller
         $post_type_id = $post_type->id;
         $post_type_meta = \App\Posttypesmeta::where([
             ['posttype_id', '=', $post_type_id],
-            ['meta_key', '=', 'labels']
+            ['meta_key', '=', 'options']
         ]);
         if ($post_type_meta !== null && $post_type_meta->count()) {
-            $labels = json_decode($post_type_meta->first()->meta_value, true);
+            $labels = json_decode($post_type_meta->first()->meta_value, true)['labels'];
         }
         $data = array(
             'labels' => $labels,
