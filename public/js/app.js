@@ -36335,7 +36335,7 @@ if (document.getElementById('add-new-post-form')) {
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/** @license React v16.5.2
+/** @license React v16.6.0
  * react.development.js
  *
  * Copyright (c) Facebook, Inc. and its affiliates.
@@ -36357,7 +36357,7 @@ var checkPropTypes = __webpack_require__(13);
 
 // TODO: this is special because it gets imported during build.
 
-var ReactVersion = '16.5.2';
+var ReactVersion = '16.6.0';
 
 // The Symbol used to tag the ReactElement-like types. If there is no native Symbol
 // nor polyfill, then a plain number is used for performance.
@@ -36370,9 +36370,11 @@ var REACT_STRICT_MODE_TYPE = hasSymbol ? Symbol.for('react.strict_mode') : 0xeac
 var REACT_PROFILER_TYPE = hasSymbol ? Symbol.for('react.profiler') : 0xead2;
 var REACT_PROVIDER_TYPE = hasSymbol ? Symbol.for('react.provider') : 0xeacd;
 var REACT_CONTEXT_TYPE = hasSymbol ? Symbol.for('react.context') : 0xeace;
-var REACT_ASYNC_MODE_TYPE = hasSymbol ? Symbol.for('react.async_mode') : 0xeacf;
+var REACT_CONCURRENT_MODE_TYPE = hasSymbol ? Symbol.for('react.concurrent_mode') : 0xeacf;
 var REACT_FORWARD_REF_TYPE = hasSymbol ? Symbol.for('react.forward_ref') : 0xead0;
-var REACT_PLACEHOLDER_TYPE = hasSymbol ? Symbol.for('react.placeholder') : 0xead1;
+var REACT_SUSPENSE_TYPE = hasSymbol ? Symbol.for('react.suspense') : 0xead1;
+var REACT_MEMO_TYPE = hasSymbol ? Symbol.for('react.memo') : 0xead3;
+var REACT_LAZY_TYPE = hasSymbol ? Symbol.for('react.lazy') : 0xead4;
 
 var MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
 var FAUX_ITERATOR_SYMBOL = '@@iterator';
@@ -36387,48 +36389,6 @@ function getIteratorFn(maybeIterable) {
   }
   return null;
 }
-
-// Exports ReactDOM.createRoot
-
-
-// Experimental error-boundary API that can recover from errors within a single
-// render phase
-
-// Suspense
-var enableSuspense = false;
-// Helps identify side effects in begin-phase lifecycle hooks and setState reducers:
-
-
-// In some cases, StrictMode should also double-render lifecycles.
-// This can be confusing for tests though,
-// And it can be bad for performance in production.
-// This feature flag can be used to control the behavior:
-
-
-// To preserve the "Pause on caught exceptions" behavior of the debugger, we
-// replay the begin phase of a failed component inside invokeGuardedCallback.
-
-
-// Warn about deprecated, async-unsafe lifecycles; relates to RFC #6:
-
-
-// Warn about legacy context API
-
-
-// Gather advanced timing metrics for Profiler subtrees.
-
-
-// Trace which interactions trigger each commit.
-
-
-// Only used in www builds.
-
-
-// Only used in www builds.
-
-
-// React Fire: prevent the value and checked attributes from syncing
-// with their related DOM properties
 
 /**
  * Use invariant() to assert state which your program assumes to be true.
@@ -36870,10 +36830,13 @@ var describeComponentFrame = function (name, source, ownerName) {
 var Resolved = 1;
 
 
+function refineResolvedLazyComponent(lazyComponent) {
+  return lazyComponent._status === Resolved ? lazyComponent._result : null;
+}
 
-
-function refineResolvedThenable(thenable) {
-  return thenable._reactStatus === Resolved ? thenable._reactResult : null;
+function getWrappedName(outerType, innerType, wrapperName) {
+  var functionName = innerType.displayName || innerType.name || '';
+  return outerType.displayName || (functionName !== '' ? wrapperName + '(' + functionName + ')' : wrapperName);
 }
 
 function getComponentName(type) {
@@ -36893,8 +36856,8 @@ function getComponentName(type) {
     return type;
   }
   switch (type) {
-    case REACT_ASYNC_MODE_TYPE:
-      return 'AsyncMode';
+    case REACT_CONCURRENT_MODE_TYPE:
+      return 'ConcurrentMode';
     case REACT_FRAGMENT_TYPE:
       return 'Fragment';
     case REACT_PORTAL_TYPE:
@@ -36903,8 +36866,8 @@ function getComponentName(type) {
       return 'Profiler';
     case REACT_STRICT_MODE_TYPE:
       return 'StrictMode';
-    case REACT_PLACEHOLDER_TYPE:
-      return 'Placeholder';
+    case REACT_SUSPENSE_TYPE:
+      return 'Suspense';
   }
   if (typeof type === 'object') {
     switch (type.$$typeof) {
@@ -36913,16 +36876,17 @@ function getComponentName(type) {
       case REACT_PROVIDER_TYPE:
         return 'Context.Provider';
       case REACT_FORWARD_REF_TYPE:
-        var renderFn = type.render;
-        var functionName = renderFn.displayName || renderFn.name || '';
-        return type.displayName || (functionName !== '' ? 'ForwardRef(' + functionName + ')' : 'ForwardRef');
-    }
-    if (typeof type.then === 'function') {
-      var thenable = type;
-      var resolvedThenable = refineResolvedThenable(thenable);
-      if (resolvedThenable) {
-        return getComponentName(resolvedThenable);
-      }
+        return getWrappedName(type, type.render, 'ForwardRef');
+      case REACT_MEMO_TYPE:
+        return getComponentName(type.type);
+      case REACT_LAZY_TYPE:
+        {
+          var thenable = type;
+          var resolvedThenable = refineResolvedLazyComponent(thenable);
+          if (resolvedThenable) {
+            return getComponentName(resolvedThenable);
+          }
+        }
     }
   }
   return null;
@@ -37637,12 +37601,6 @@ function onlyChild(children) {
   return children;
 }
 
-function readContext(context, observedBits) {
-  var dispatcher = ReactCurrentOwner.currentDispatcher;
-  !(dispatcher !== null) ? invariant(false, 'Context.unstable_read(): Context can only be read while React is rendering, e.g. inside the render method or getDerivedStateFromProps.') : void 0;
-  return dispatcher.readContext(context, observedBits);
-}
-
 function createContext(defaultValue, calculateChangedBits) {
   if (calculateChangedBits === undefined) {
     calculateChangedBits = null;
@@ -37664,16 +37622,69 @@ function createContext(defaultValue, calculateChangedBits) {
     _currentValue2: defaultValue,
     // These are circular
     Provider: null,
-    Consumer: null,
-    unstable_read: null
+    Consumer: null
   };
 
   context.Provider = {
     $$typeof: REACT_PROVIDER_TYPE,
     _context: context
   };
-  context.Consumer = context;
-  context.unstable_read = readContext.bind(null, context);
+
+  var hasWarnedAboutUsingNestedContextConsumers = false;
+  var hasWarnedAboutUsingConsumerProvider = false;
+
+  {
+    // A separate object, but proxies back to the original context object for
+    // backwards compatibility. It has a different $$typeof, so we can properly
+    // warn for the incorrect usage of Context as a Consumer.
+    var Consumer = {
+      $$typeof: REACT_CONTEXT_TYPE,
+      _context: context,
+      _calculateChangedBits: context._calculateChangedBits
+    };
+    // $FlowFixMe: Flow complains about not setting a value, which is intentional here
+    Object.defineProperties(Consumer, {
+      Provider: {
+        get: function () {
+          if (!hasWarnedAboutUsingConsumerProvider) {
+            hasWarnedAboutUsingConsumerProvider = true;
+            warning$1(false, 'Rendering <Context.Consumer.Provider> is not supported and will be removed in ' + 'a future major release. Did you mean to render <Context.Provider> instead?');
+          }
+          return context.Provider;
+        },
+        set: function (_Provider) {
+          context.Provider = _Provider;
+        }
+      },
+      _currentValue: {
+        get: function () {
+          return context._currentValue;
+        },
+        set: function (_currentValue) {
+          context._currentValue = _currentValue;
+        }
+      },
+      _currentValue2: {
+        get: function () {
+          return context._currentValue2;
+        },
+        set: function (_currentValue2) {
+          context._currentValue2 = _currentValue2;
+        }
+      },
+      Consumer: {
+        get: function () {
+          if (!hasWarnedAboutUsingNestedContextConsumers) {
+            hasWarnedAboutUsingNestedContextConsumers = true;
+            warning$1(false, 'Rendering <Context.Consumer.Consumer> is not supported and will be removed in ' + 'a future major release. Did you mean to render <Context.Consumer> instead?');
+          }
+          return context.Consumer;
+        }
+      }
+    });
+    // $FlowFixMe: Flow complains about missing properties because it doesn't understand defineProperty
+    context.Consumer = Consumer;
+  }
 
   {
     context._currentRenderer = null;
@@ -37684,20 +37695,12 @@ function createContext(defaultValue, calculateChangedBits) {
 }
 
 function lazy(ctor) {
-  var thenable = null;
   return {
-    then: function (resolve, reject) {
-      if (thenable === null) {
-        // Lazily create thenable by wrapping in an extra thenable.
-        thenable = ctor();
-        ctor = null;
-      }
-      return thenable.then(resolve, reject);
-    },
-
+    $$typeof: REACT_LAZY_TYPE,
+    _ctor: ctor,
     // React uses these fields to store the result.
-    _reactStatus: -1,
-    _reactResult: null
+    _status: -1,
+    _result: null
   };
 }
 
@@ -37725,7 +37728,20 @@ function forwardRef(render) {
 function isValidElementType(type) {
   return typeof type === 'string' || typeof type === 'function' ||
   // Note: its typeof might be other than 'symbol' or 'number' if it's a polyfill.
-  type === REACT_FRAGMENT_TYPE || type === REACT_ASYNC_MODE_TYPE || type === REACT_PROFILER_TYPE || type === REACT_STRICT_MODE_TYPE || type === REACT_PLACEHOLDER_TYPE || typeof type === 'object' && type !== null && (typeof type.then === 'function' || type.$$typeof === REACT_PROVIDER_TYPE || type.$$typeof === REACT_CONTEXT_TYPE || type.$$typeof === REACT_FORWARD_REF_TYPE);
+  type === REACT_FRAGMENT_TYPE || type === REACT_CONCURRENT_MODE_TYPE || type === REACT_PROFILER_TYPE || type === REACT_STRICT_MODE_TYPE || type === REACT_SUSPENSE_TYPE || typeof type === 'object' && type !== null && (type.$$typeof === REACT_LAZY_TYPE || type.$$typeof === REACT_MEMO_TYPE || type.$$typeof === REACT_PROVIDER_TYPE || type.$$typeof === REACT_CONTEXT_TYPE || type.$$typeof === REACT_FORWARD_REF_TYPE);
+}
+
+function memo(type, compare) {
+  {
+    if (!isValidElementType(type)) {
+      warningWithoutStack$1(false, 'memo: The first argument must be a component. Instead ' + 'received: %s', type === null ? 'null' : typeof type);
+    }
+  }
+  return {
+    $$typeof: REACT_MEMO_TYPE,
+    type: type,
+    compare: compare === undefined ? null : compare
+  };
 }
 
 /**
@@ -37873,7 +37889,7 @@ function validatePropTypes(element) {
   var name = void 0,
       propTypes = void 0;
   if (typeof type === 'function') {
-    // Class or functional component
+    // Class or function component
     name = type.displayName || type.name;
     propTypes = type.propTypes;
   } else if (typeof type === 'object' && type !== null && type.$$typeof === REACT_FORWARD_REF_TYPE) {
@@ -38025,10 +38041,13 @@ var React = {
 
   createContext: createContext,
   forwardRef: forwardRef,
+  lazy: lazy,
+  memo: memo,
 
   Fragment: REACT_FRAGMENT_TYPE,
   StrictMode: REACT_STRICT_MODE_TYPE,
-  unstable_AsyncMode: REACT_ASYNC_MODE_TYPE,
+  unstable_ConcurrentMode: REACT_CONCURRENT_MODE_TYPE,
+  Suspense: REACT_SUSPENSE_TYPE,
   unstable_Profiler: REACT_PROFILER_TYPE,
 
   createElement: createElementWithValidation,
@@ -38040,11 +38059,6 @@ var React = {
 
   __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: ReactSharedInternals
 };
-
-if (enableSuspense) {
-  React.Placeholder = REACT_PLACEHOLDER_TYPE;
-  React.lazy = lazy;
-}
 
 
 
@@ -38132,7 +38146,7 @@ if (false) {
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/** @license React v16.5.2
+/** @license React v16.6.0
  * react-dom.development.js
  *
  * Copyright (c) Facebook, Inc. and its affiliates.
@@ -38152,7 +38166,7 @@ if (true) {
 var React = __webpack_require__(11);
 var _assign = __webpack_require__(12);
 var checkPropTypes = __webpack_require__(13);
-var schedule = __webpack_require__(44);
+var scheduler = __webpack_require__(44);
 var tracing = __webpack_require__(46);
 
 /**
@@ -38257,6 +38271,10 @@ var invokeGuardedCallbackImpl = function (name, func, context, a, b, c, d, e, f)
       // browsers that support it.
       var windowEvent = window.event;
 
+      // Keeps track of the descriptor of window.event to restore it after event
+      // dispatching: https://github.com/facebook/react/issues/13688
+      var windowEventDescriptor = Object.getOwnPropertyDescriptor(window, 'event');
+
       // Create an event handler for our fake event. We will synchronously
       // dispatch our fake event using `dispatchEvent`. Inside the handler, we
       // call the user-provided callback.
@@ -38327,6 +38345,10 @@ var invokeGuardedCallbackImpl = function (name, func, context, a, b, c, d, e, f)
       // errors, it will trigger our global error handler.
       evt.initEvent(evtType, false, false);
       fakeNode.dispatchEvent(evt);
+
+      if (windowEventDescriptor) {
+        Object.defineProperty(window, 'event', windowEventDescriptor);
+      }
 
       if (didError) {
         if (!didSetError) {
@@ -38998,23 +39020,24 @@ function runExtractedEventsInBatch(topLevelType, targetInst, nativeEvent, native
   runEventsInBatch(events, false);
 }
 
-var FunctionalComponent = 0;
-var FunctionalComponentLazy = 1;
-var ClassComponent = 2;
-var ClassComponentLazy = 3;
-var IndeterminateComponent = 4; // Before we know whether it is functional or class
-var HostRoot = 5; // Root of a host tree. Could be nested inside another node.
-var HostPortal = 6; // A subtree. Could be an entry point to a different renderer.
-var HostComponent = 7;
-var HostText = 8;
-var Fragment = 9;
-var Mode = 10;
-var ContextConsumer = 11;
-var ContextProvider = 12;
-var ForwardRef = 13;
-var ForwardRefLazy = 14;
-var Profiler = 15;
-var PlaceholderComponent = 16;
+var FunctionComponent = 0;
+var ClassComponent = 1;
+var IndeterminateComponent = 2; // Before we know whether it is function or class
+var HostRoot = 3; // Root of a host tree. Could be nested inside another node.
+var HostPortal = 4; // A subtree. Could be an entry point to a different renderer.
+var HostComponent = 5;
+var HostText = 6;
+var Fragment = 7;
+var Mode = 8;
+var ContextConsumer = 9;
+var ContextProvider = 10;
+var ForwardRef = 11;
+var Profiler = 12;
+var SuspenseComponent = 13;
+var MemoComponent = 14;
+var SimpleMemoComponent = 15;
+var LazyComponent = 16;
+var IncompleteClassComponent = 17;
 
 var randomKey = Math.random().toString(36).slice(2);
 var internalInstanceKey = '__reactInternalInstance$' + randomKey;
@@ -40596,9 +40619,11 @@ var REACT_STRICT_MODE_TYPE = hasSymbol ? Symbol.for('react.strict_mode') : 0xeac
 var REACT_PROFILER_TYPE = hasSymbol ? Symbol.for('react.profiler') : 0xead2;
 var REACT_PROVIDER_TYPE = hasSymbol ? Symbol.for('react.provider') : 0xeacd;
 var REACT_CONTEXT_TYPE = hasSymbol ? Symbol.for('react.context') : 0xeace;
-var REACT_ASYNC_MODE_TYPE = hasSymbol ? Symbol.for('react.async_mode') : 0xeacf;
+var REACT_CONCURRENT_MODE_TYPE = hasSymbol ? Symbol.for('react.concurrent_mode') : 0xeacf;
 var REACT_FORWARD_REF_TYPE = hasSymbol ? Symbol.for('react.forward_ref') : 0xead0;
-var REACT_PLACEHOLDER_TYPE = hasSymbol ? Symbol.for('react.placeholder') : 0xead1;
+var REACT_SUSPENSE_TYPE = hasSymbol ? Symbol.for('react.suspense') : 0xead1;
+var REACT_MEMO_TYPE = hasSymbol ? Symbol.for('react.memo') : 0xead3;
+var REACT_LAZY_TYPE = hasSymbol ? Symbol.for('react.lazy') : 0xead4;
 
 var MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
 var FAUX_ITERATOR_SYMBOL = '@@iterator';
@@ -40618,12 +40643,13 @@ var Pending = 0;
 var Resolved = 1;
 var Rejected = 2;
 
-function getResultFromResolvedThenable(thenable) {
-  return thenable._reactResult;
+function refineResolvedLazyComponent(lazyComponent) {
+  return lazyComponent._status === Resolved ? lazyComponent._result : null;
 }
 
-function refineResolvedThenable(thenable) {
-  return thenable._reactStatus === Resolved ? thenable._reactResult : null;
+function getWrappedName(outerType, innerType, wrapperName) {
+  var functionName = innerType.displayName || innerType.name || '';
+  return outerType.displayName || (functionName !== '' ? wrapperName + '(' + functionName + ')' : wrapperName);
 }
 
 function getComponentName(type) {
@@ -40643,8 +40669,8 @@ function getComponentName(type) {
     return type;
   }
   switch (type) {
-    case REACT_ASYNC_MODE_TYPE:
-      return 'AsyncMode';
+    case REACT_CONCURRENT_MODE_TYPE:
+      return 'ConcurrentMode';
     case REACT_FRAGMENT_TYPE:
       return 'Fragment';
     case REACT_PORTAL_TYPE:
@@ -40653,8 +40679,8 @@ function getComponentName(type) {
       return 'Profiler';
     case REACT_STRICT_MODE_TYPE:
       return 'StrictMode';
-    case REACT_PLACEHOLDER_TYPE:
-      return 'Placeholder';
+    case REACT_SUSPENSE_TYPE:
+      return 'Suspense';
   }
   if (typeof type === 'object') {
     switch (type.$$typeof) {
@@ -40663,16 +40689,17 @@ function getComponentName(type) {
       case REACT_PROVIDER_TYPE:
         return 'Context.Provider';
       case REACT_FORWARD_REF_TYPE:
-        var renderFn = type.render;
-        var functionName = renderFn.displayName || renderFn.name || '';
-        return type.displayName || (functionName !== '' ? 'ForwardRef(' + functionName + ')' : 'ForwardRef');
-    }
-    if (typeof type.then === 'function') {
-      var thenable = type;
-      var resolvedThenable = refineResolvedThenable(thenable);
-      if (resolvedThenable) {
-        return getComponentName(resolvedThenable);
-      }
+        return getWrappedName(type, type.render, 'ForwardRef');
+      case REACT_MEMO_TYPE:
+        return getComponentName(type.type);
+      case REACT_LAZY_TYPE:
+        {
+          var thenable = type;
+          var resolvedThenable = refineResolvedLazyComponent(thenable);
+          if (resolvedThenable) {
+            return getComponentName(resolvedThenable);
+          }
+        }
     }
   }
   return null;
@@ -40683,10 +40710,9 @@ var ReactDebugCurrentFrame = ReactSharedInternals.ReactDebugCurrentFrame;
 function describeFiber(fiber) {
   switch (fiber.tag) {
     case IndeterminateComponent:
-    case FunctionalComponent:
-    case FunctionalComponentLazy:
+    case LazyComponent:
+    case FunctionComponent:
     case ClassComponent:
-    case ClassComponentLazy:
     case HostComponent:
     case Mode:
       var owner = fiber._debugOwner;
@@ -41282,14 +41308,8 @@ var ReactControlledValuePropTypes = {
   };
 }
 
-// Exports ReactDOM.createRoot
 var enableUserTimingAPI = true;
 
-// Experimental error-boundary API that can recover from errors within a single
-// render phase
-var enableGetDerivedStateFromCatch = false;
-// Suspense
-var enableSuspense = false;
 // Helps identify side effects in begin-phase lifecycle hooks and setState reducers:
 var debugRenderPhaseSideEffects = false;
 
@@ -41305,9 +41325,6 @@ var replayFailedUnitOfWorkWithInvokeGuardedCallback = true;
 
 // Warn about deprecated, async-unsafe lifecycles; relates to RFC #6:
 var warnAboutDeprecatedLifecycles = false;
-
-// Warn about legacy context API
-var warnAboutLegacyContextAPI = false;
 
 // Gather advanced timing metrics for Profiler subtrees.
 var enableProfilerTimer = true;
@@ -41515,7 +41532,7 @@ function postMountWrapper(element, props, isHydrating) {
         }
       } else {
         // When syncing the value attribute, the value property should use
-        // the the wrapperState._initialValue property. This uses:
+        // the wrapperState._initialValue property. This uses:
         //
         //   1. The value React property when present
         //   2. The defaultValue React property when present
@@ -41568,7 +41585,7 @@ function postMountWrapper(element, props, isHydrating) {
       node.defaultChecked = !!props.defaultChecked;
     }
   } else {
-    // When syncing the checked attribute, both the the checked property and
+    // When syncing the checked attribute, both the checked property and
     // attribute are assigned at the same time using defaultChecked. This uses:
     //
     //   1. The checked React property when present
@@ -41904,11 +41921,6 @@ var SyntheticUIEvent = SyntheticEvent.extend({
   detail: null
 });
 
-/**
- * Translation from modifier key to the associated property in the event.
- * @see http://www.w3.org/TR/DOM-Level-3-Events/#keys-Modifiers
- */
-
 var modifierKeyToProp = {
   Alt: 'altKey',
   Control: 'ctrlKey',
@@ -41919,6 +41931,11 @@ var modifierKeyToProp = {
 // IE8 does not implement getModifierState so we simply map it to the only
 // modifier keys exposed by the event itself, does not support Lock-keys.
 // Currently, all major browsers except Chrome seems to support Lock-keys.
+/**
+ * Translation from modifier key to the associated property in the event.
+ * @see http://www.w3.org/TR/DOM-Level-3-Events/#keys-Modifiers
+ */
+
 function modifierStateGetter(keyArg) {
   var syntheticEvent = this;
   var nativeEvent = syntheticEvent.nativeEvent;
@@ -42265,7 +42282,7 @@ function isFiberMounted(fiber) {
 function isMounted(component) {
   {
     var owner = ReactCurrentOwner$1.current;
-    if (owner !== null && (owner.tag === ClassComponent || owner.tag === ClassComponentLazy)) {
+    if (owner !== null && owner.tag === ClassComponent) {
       var ownerFiber = owner;
       var instance = ownerFiber.stateNode;
       !instance._warnedAboutRefsInRender ? warningWithoutStack$1(false, '%s is accessing isMounted inside its render() function. ' + 'render() should be a pure function of props and state. It should ' + 'never access something that requires stale data from the previous ' + 'render, such as refs. Move this logic to componentDidMount and ' + 'componentDidUpdate instead.', getComponentName(ownerFiber.type) || 'A component') : void 0;
@@ -45417,7 +45434,7 @@ var SUPPRESS_CONTENT_EDITABLE_WARNING = 'suppressContentEditableWarning';
 var SUPPRESS_HYDRATION_WARNING$1 = 'suppressHydrationWarning';
 var AUTOFOCUS = 'autoFocus';
 var CHILDREN = 'children';
-var STYLE = 'style';
+var STYLE$1 = 'style';
 var HTML = '__html';
 
 var HTML_NAMESPACE = Namespaces.html;
@@ -45572,7 +45589,7 @@ function setInitialDOMProperties(tag, domElement, rootContainerElement, nextProp
       continue;
     }
     var nextProp = nextProps[propKey];
-    if (propKey === STYLE) {
+    if (propKey === STYLE$1) {
       {
         if (nextProp) {
           // Freeze the next style object so that we can assume it won't be
@@ -45625,7 +45642,7 @@ function updateDOMProperties(domElement, updatePayload, wasCustomComponentTag, i
   for (var i = 0; i < updatePayload.length; i += 2) {
     var propKey = updatePayload[i];
     var propValue = updatePayload[i + 1];
-    if (propKey === STYLE) {
+    if (propKey === STYLE$1) {
       setValueForStyles(domElement, propValue);
     } else if (propKey === DANGEROUSLY_SET_INNER_HTML) {
       setInnerHTML(domElement, propValue);
@@ -45862,7 +45879,7 @@ function diffProperties(domElement, tag, lastRawProps, nextRawProps, rootContain
     if (nextProps.hasOwnProperty(propKey) || !lastProps.hasOwnProperty(propKey) || lastProps[propKey] == null) {
       continue;
     }
-    if (propKey === STYLE) {
+    if (propKey === STYLE$1) {
       var lastStyle = lastProps[propKey];
       for (styleName in lastStyle) {
         if (lastStyle.hasOwnProperty(styleName)) {
@@ -45897,7 +45914,7 @@ function diffProperties(domElement, tag, lastRawProps, nextRawProps, rootContain
     if (!nextProps.hasOwnProperty(propKey) || nextProp === lastProp || nextProp == null && lastProp == null) {
       continue;
     }
-    if (propKey === STYLE) {
+    if (propKey === STYLE$1) {
       {
         if (nextProp) {
           // Freeze the next style object so that we can assume it won't be
@@ -45972,7 +45989,7 @@ function diffProperties(domElement, tag, lastRawProps, nextRawProps, rootContain
     }
   }
   if (styleUpdates) {
-    (updatePayload = updatePayload || []).push(STYLE, styleUpdates);
+    (updatePayload = updatePayload || []).push(STYLE$1, styleUpdates);
   }
   return updatePayload;
 }
@@ -46176,7 +46193,7 @@ function diffHydratedProperties(domElement, tag, rawProps, parentNamespace, root
         if (expectedHTML !== serverHTML) {
           warnForPropDifference(propKey, serverHTML, expectedHTML);
         }
-      } else if (propKey === STYLE) {
+      } else if (propKey === STYLE$1) {
         // $FlowFixMe - Should be inferred as not undefined.
         extraAttributeNames.delete(propKey);
 
@@ -46656,11 +46673,16 @@ var createContainerChildSet = shim;
 var appendChildToContainerChildSet = shim;
 var finalizeContainerChildren = shim;
 var replaceContainerChildren = shim;
+var cloneHiddenInstance = shim;
+var cloneUnhiddenInstance = shim;
+var createHiddenTextInstance = shim;
 
 var SUPPRESS_HYDRATION_WARNING = void 0;
 {
   SUPPRESS_HYDRATION_WARNING = 'suppressHydrationWarning';
 }
+
+var STYLE = 'style';
 
 var eventsEnabled = null;
 var selectionInformation = null;
@@ -46849,9 +46871,11 @@ function appendChildToContainer(container, child) {
   // through the React tree. However, on Mobile Safari the click would
   // never bubble through the *DOM* tree unless an ancestor with onclick
   // event exists. So we wouldn't see it and dispatch it.
-  // This is why we ensure that containers have inline onclick defined.
+  // This is why we ensure that non React root containers have inline onclick
+  // defined.
   // https://github.com/facebook/react/issues/11918
-  if (parentNode.onclick === null) {
+  var reactRootContainer = container._reactRootContainer;
+  if ((reactRootContainer === null || reactRootContainer === undefined) && parentNode.onclick === null) {
     // TODO: This cast may not be sound for SVG, MathML or custom elements.
     trapClickOnNonInteractiveElement(parentNode);
   }
@@ -46879,6 +46903,29 @@ function removeChildFromContainer(container, child) {
   } else {
     container.removeChild(child);
   }
+}
+
+function hideInstance(instance) {
+  // TODO: Does this work for all element types? What about MathML? Should we
+  // pass host context to this method?
+  instance = instance;
+  instance.style.display = 'none';
+}
+
+function hideTextInstance(textInstance) {
+  textInstance.nodeValue = '';
+}
+
+function unhideInstance(instance, props) {
+  instance = instance;
+  var styleProp = props[STYLE];
+  var display = styleProp !== undefined && styleProp !== null && styleProp.hasOwnProperty('display') ? styleProp.display : null;
+  // $FlowFixMe Setting a style property to null is the valid way to reset it.
+  instance.style.display = display;
+}
+
+function unhideTextInstance(textInstance, text) {
+  textInstance.nodeValue = text;
 }
 
 // -------------------
@@ -47251,7 +47298,7 @@ function stopFailedWorkTimer(fiber) {
       return;
     }
     fiber._debugIsCurrentlyTiming = false;
-    var warning = 'An error was thrown inside this error boundary';
+    var warning = fiber.tag === SuspenseComponent ? 'Rendering was suspended' : 'An error was thrown inside this error boundary';
     endFiberMark(fiber, null, warning);
   }
 }
@@ -47673,7 +47720,7 @@ function invalidateContextProvider(workInProgress, type, didChange) {
 function findCurrentUnmaskedContext(fiber) {
   // Currently this is only used with renderSubtreeIntoContainer; not sure if it
   // makes sense elsewhere
-  !(isFiberMounted(fiber) && (fiber.tag === ClassComponent || fiber.tag === ClassComponentLazy)) ? invariant(false, 'Expected subtree parent to be a mounted class component. This error is likely caused by a bug in React. Please file an issue.') : void 0;
+  !(isFiberMounted(fiber) && fiber.tag === ClassComponent) ? invariant(false, 'Expected subtree parent to be a mounted class component. This error is likely caused by a bug in React. Please file an issue.') : void 0;
 
   var node = fiber;
   do {
@@ -47684,14 +47731,6 @@ function findCurrentUnmaskedContext(fiber) {
         {
           var Component = node.type;
           if (isContextProvider(Component)) {
-            return node.stateNode.__reactInternalMemoizedMergedChildContext;
-          }
-          break;
-        }
-      case ClassComponentLazy:
-        {
-          var _Component = getResultFromResolvedThenable(node.type);
-          if (isContextProvider(_Component)) {
             return node.stateNode.__reactInternalMemoizedMergedChildContext;
           }
           break;
@@ -47827,7 +47866,7 @@ function computeInteractiveExpiration(currentTime) {
 }
 
 var NoContext = 0;
-var AsyncMode = 1;
+var ConcurrentMode = 1;
 var StrictMode = 2;
 var ProfileMode = 4;
 
@@ -47864,6 +47903,7 @@ function FiberNode(tag, pendingProps, key, mode) {
   // Instance
   this.tag = tag;
   this.key = key;
+  this.elementType = null;
   this.type = null;
   this.stateNode = null;
 
@@ -47936,11 +47976,21 @@ function shouldConstruct(Component) {
   return !!(prototype && prototype.isReactComponent);
 }
 
-function resolveLazyComponentTag(fiber, Component) {
+function isSimpleFunctionComponent(type) {
+  return typeof type === 'function' && !shouldConstruct(type) && type.defaultProps === undefined;
+}
+
+function resolveLazyComponentTag(Component) {
   if (typeof Component === 'function') {
-    return shouldConstruct(Component) ? ClassComponentLazy : FunctionalComponentLazy;
-  } else if (Component !== undefined && Component !== null && Component.$$typeof) {
-    return ForwardRefLazy;
+    return shouldConstruct(Component) ? ClassComponent : FunctionComponent;
+  } else if (Component !== undefined && Component !== null) {
+    var $$typeof = Component.$$typeof;
+    if ($$typeof === REACT_FORWARD_REF_TYPE) {
+      return ForwardRef;
+    }
+    if ($$typeof === REACT_MEMO_TYPE) {
+      return MemoComponent;
+    }
   }
   return IndeterminateComponent;
 }
@@ -47955,6 +48005,7 @@ function createWorkInProgress(current, pendingProps, expirationTime) {
     // extra objects for things that are never updated. It also allow us to
     // reclaim the extra memory if needed.
     workInProgress = createFiber(current.tag, pendingProps, current.key, current.mode);
+    workInProgress.elementType = current.elementType;
     workInProgress.type = current.type;
     workInProgress.stateNode = current.stateNode;
 
@@ -47989,15 +48040,8 @@ function createWorkInProgress(current, pendingProps, expirationTime) {
     }
   }
 
-  // Don't touching the subtree's expiration time, which has not changed.
   workInProgress.childExpirationTime = current.childExpirationTime;
-  if (pendingProps !== current.pendingProps) {
-    // This fiber has new props.
-    workInProgress.expirationTime = expirationTime;
-  } else {
-    // This fiber's props have not changed.
-    workInProgress.expirationTime = current.expirationTime;
-  }
+  workInProgress.expirationTime = current.expirationTime;
 
   workInProgress.child = current.child;
   workInProgress.memoizedProps = current.memoizedProps;
@@ -48018,8 +48062,8 @@ function createWorkInProgress(current, pendingProps, expirationTime) {
   return workInProgress;
 }
 
-function createHostRootFiber(isAsync) {
-  var mode = isAsync ? AsyncMode | StrictMode : NoContext;
+function createHostRootFiber(isConcurrent) {
+  var mode = isConcurrent ? ConcurrentMode | StrictMode : NoContext;
 
   if (enableProfilerTimer && isDevToolsPresent) {
     // Always collect profile timings when DevTools are present.
@@ -48031,39 +48075,31 @@ function createHostRootFiber(isAsync) {
   return createFiber(HostRoot, null, null, mode);
 }
 
-function createFiberFromElement(element, mode, expirationTime) {
-  var owner = null;
-  {
-    owner = element._owner;
-  }
-
+function createFiberFromTypeAndProps(type, // React$ElementType
+key, pendingProps, owner, mode, expirationTime) {
   var fiber = void 0;
-  var type = element.type;
-  var key = element.key;
-  var pendingProps = element.props;
 
-  var fiberTag = void 0;
+  var fiberTag = IndeterminateComponent;
+  // The resolved type is set if we know what the final type will be. I.e. it's not lazy.
+  var resolvedType = type;
   if (typeof type === 'function') {
-    fiberTag = shouldConstruct(type) ? ClassComponent : IndeterminateComponent;
+    if (shouldConstruct(type)) {
+      fiberTag = ClassComponent;
+    }
   } else if (typeof type === 'string') {
     fiberTag = HostComponent;
   } else {
     getTag: switch (type) {
       case REACT_FRAGMENT_TYPE:
         return createFiberFromFragment(pendingProps.children, mode, expirationTime, key);
-      case REACT_ASYNC_MODE_TYPE:
-        fiberTag = Mode;
-        mode |= AsyncMode | StrictMode;
-        break;
+      case REACT_CONCURRENT_MODE_TYPE:
+        return createFiberFromMode(pendingProps, mode | ConcurrentMode | StrictMode, expirationTime, key);
       case REACT_STRICT_MODE_TYPE:
-        fiberTag = Mode;
-        mode |= StrictMode;
-        break;
+        return createFiberFromMode(pendingProps, mode | StrictMode, expirationTime, key);
       case REACT_PROFILER_TYPE:
         return createFiberFromProfiler(pendingProps, mode, expirationTime, key);
-      case REACT_PLACEHOLDER_TYPE:
-        fiberTag = PlaceholderComponent;
-        break;
+      case REACT_SUSPENSE_TYPE:
+        return createFiberFromSuspense(pendingProps, mode, expirationTime, key);
       default:
         {
           if (typeof type === 'object' && type !== null) {
@@ -48078,13 +48114,13 @@ function createFiberFromElement(element, mode, expirationTime) {
               case REACT_FORWARD_REF_TYPE:
                 fiberTag = ForwardRef;
                 break getTag;
-              default:
-                {
-                  if (typeof type.then === 'function') {
-                    fiberTag = IndeterminateComponent;
-                    break getTag;
-                  }
-                }
+              case REACT_MEMO_TYPE:
+                fiberTag = MemoComponent;
+                break getTag;
+              case REACT_LAZY_TYPE:
+                fiberTag = LazyComponent;
+                resolvedType = null;
+                break getTag;
             }
           }
           var info = '';
@@ -48103,14 +48139,26 @@ function createFiberFromElement(element, mode, expirationTime) {
   }
 
   fiber = createFiber(fiberTag, pendingProps, key, mode);
-  fiber.type = type;
+  fiber.elementType = type;
+  fiber.type = resolvedType;
   fiber.expirationTime = expirationTime;
 
+  return fiber;
+}
+
+function createFiberFromElement(element, mode, expirationTime) {
+  var owner = null;
+  {
+    owner = element._owner;
+  }
+  var type = element.type;
+  var key = element.key;
+  var pendingProps = element.props;
+  var fiber = createFiberFromTypeAndProps(type, key, pendingProps, owner, mode, expirationTime);
   {
     fiber._debugSource = element._source;
     fiber._debugOwner = element._owner;
   }
-
   return fiber;
 }
 
@@ -48128,9 +48176,35 @@ function createFiberFromProfiler(pendingProps, mode, expirationTime, key) {
   }
 
   var fiber = createFiber(Profiler, pendingProps, key, mode | ProfileMode);
+  // TODO: The Profiler fiber shouldn't have a type. It has a tag.
+  fiber.elementType = REACT_PROFILER_TYPE;
   fiber.type = REACT_PROFILER_TYPE;
   fiber.expirationTime = expirationTime;
 
+  return fiber;
+}
+
+function createFiberFromMode(pendingProps, mode, expirationTime, key) {
+  var fiber = createFiber(Mode, pendingProps, key, mode);
+
+  // TODO: The Mode fiber shouldn't have a type. It has a tag.
+  var type = (mode & ConcurrentMode) === NoContext ? REACT_STRICT_MODE_TYPE : REACT_CONCURRENT_MODE_TYPE;
+  fiber.elementType = type;
+  fiber.type = type;
+
+  fiber.expirationTime = expirationTime;
+  return fiber;
+}
+
+function createFiberFromSuspense(pendingProps, mode, expirationTime, key) {
+  var fiber = createFiber(SuspenseComponent, pendingProps, key, mode);
+
+  // TODO: The SuspenseComponent fiber shouldn't have a type. It has a tag.
+  var type = REACT_SUSPENSE_TYPE;
+  fiber.elementType = type;
+  fiber.type = type;
+
+  fiber.expirationTime = expirationTime;
   return fiber;
 }
 
@@ -48142,6 +48216,8 @@ function createFiberFromText(content, mode, expirationTime) {
 
 function createFiberFromHostInstanceForDeletion() {
   var fiber = createFiber(HostComponent, null, null, NoContext);
+  // TODO: These should not need a type.
+  fiber.elementType = 'DELETED';
   fiber.type = 'DELETED';
   return fiber;
 }
@@ -48174,6 +48250,7 @@ function assignFiberPropertiesInDEV(target, source) {
 
   target.tag = source.tag;
   target.key = source.key;
+  target.elementType = source.elementType;
   target.type = source.type;
   target.stateNode = source.stateNode;
   target.return = source.return;
@@ -48207,7 +48284,6 @@ function assignFiberPropertiesInDEV(target, source) {
   return target;
 }
 
-/* eslint-disable no-use-before-define */
 // TODO: This should be lifted into the renderer.
 
 
@@ -48223,12 +48299,11 @@ function assignFiberPropertiesInDEV(target, source) {
 // The types are defined separately within this file to ensure they stay in sync.
 // (We don't have to use an inline :any cast when enableSchedulerTracing is disabled.)
 
-/* eslint-enable no-use-before-define */
 
-function createFiberRoot(containerInfo, isAsync, hydrate) {
+function createFiberRoot(containerInfo, isConcurrent, hydrate) {
   // Cyclic construction. This cheats the type system right now because
   // stateNode is any.
-  var uninitializedFiber = createHostRootFiber(isAsync);
+  var uninitializedFiber = createHostRootFiber(isConcurrent);
 
   var root = void 0;
   if (enableSchedulerTracing) {
@@ -49036,7 +49111,7 @@ function enqueueUpdate(fiber, update) {
   }
 
   {
-    if ((fiber.tag === ClassComponent || fiber.tag === ClassComponentLazy) && (currentlyProcessingQueue === queue1 || queue2 !== null && currentlyProcessingQueue === queue2) && !didWarnUpdateInsideUpdate) {
+    if (fiber.tag === ClassComponent && (currentlyProcessingQueue === queue1 || queue2 !== null && currentlyProcessingQueue === queue2) && !didWarnUpdateInsideUpdate) {
       warningWithoutStack$1(false, 'An update (setState, replaceState, or forceUpdate) was scheduled ' + 'from inside an update function. Update functions should be pure, ' + 'with zero side-effects. Consider using componentDidUpdate or a ' + 'callback.');
       didWarnUpdateInsideUpdate = true;
     }
@@ -49409,7 +49484,7 @@ function propagateContextChange(workInProgress, context, changedBits, renderExpi
         if (dependency.context === context && (dependency.observedBits & changedBits) !== 0) {
           // Match! Schedule an update on this fiber.
 
-          if (fiber.tag === ClassComponent || fiber.tag === ClassComponentLazy) {
+          if (fiber.tag === ClassComponent) {
             // Schedule a force update on the work-in-progress.
             var update = createUpdate(renderExpirationTime);
             update.tag = ForceUpdate;
@@ -49516,7 +49591,7 @@ function readContext(context, observedBits) {
     };
 
     if (lastContextDependency === null) {
-      !(currentlyRenderingFiber !== null) ? invariant(false, 'Context.unstable_read(): Context can only be read while React is rendering, e.g. inside the render method or getDerivedStateFromProps.') : void 0;
+      !(currentlyRenderingFiber !== null) ? invariant(false, 'Context can only be read while React is rendering, e.g. inside the render method or getDerivedStateFromProps.') : void 0;
       // This is the first dependency in the list
       currentlyRenderingFiber.firstContextDependency = lastContextDependency = contextItem;
     } else {
@@ -49612,7 +49687,7 @@ function recordCommitTime() {
   if (!enableProfilerTimer) {
     return;
   }
-  commitTime = schedule.unstable_now();
+  commitTime = scheduler.unstable_now();
 }
 
 function startProfilerTimer(fiber) {
@@ -49620,10 +49695,10 @@ function startProfilerTimer(fiber) {
     return;
   }
 
-  profilerStartTime = schedule.unstable_now();
+  profilerStartTime = scheduler.unstable_now();
 
   if (fiber.actualStartTime < 0) {
-    fiber.actualStartTime = schedule.unstable_now();
+    fiber.actualStartTime = scheduler.unstable_now();
   }
 }
 
@@ -49640,7 +49715,7 @@ function stopProfilerTimerIfRunningAndRecordDelta(fiber, overrideBaseTime) {
   }
 
   if (profilerStartTime >= 0) {
-    var elapsedTime = schedule.unstable_now() - profilerStartTime;
+    var elapsedTime = scheduler.unstable_now() - profilerStartTime;
     fiber.actualDuration += elapsedTime;
     if (overrideBaseTime) {
       fiber.selfBaseDuration = elapsedTime;
@@ -49649,8 +49724,15 @@ function stopProfilerTimerIfRunningAndRecordDelta(fiber, overrideBaseTime) {
   }
 }
 
+var ReactCurrentOwner$4 = ReactSharedInternals.ReactCurrentOwner;
+
+function readContext$1(contextType) {
+  var dispatcher = ReactCurrentOwner$4.currentDispatcher;
+  return dispatcher.readContext(contextType);
+}
+
 var fakeInternalInstance = {};
-var isArray = Array.isArray;
+var isArray$1 = Array.isArray;
 
 // React.Component uses a shared frozen object by default.
 // We'll use it to determine whether we need to initialize legacy refs.
@@ -49664,6 +49746,8 @@ var didWarnAboutUndefinedDerivedState = void 0;
 var warnOnUndefinedDerivedState = void 0;
 var warnOnInvalidCallback$1 = void 0;
 var didWarnAboutDirectlyAssigningPropsToState = void 0;
+var didWarnAboutContextTypeAndContextTypes = void 0;
+var didWarnAboutInvalidateContextType = void 0;
 
 {
   didWarnAboutStateAssignmentForComponent = new Set();
@@ -49672,6 +49756,8 @@ var didWarnAboutDirectlyAssigningPropsToState = void 0;
   didWarnAboutLegacyLifecyclesAndDerivedState = new Set();
   didWarnAboutDirectlyAssigningPropsToState = new Set();
   didWarnAboutUndefinedDerivedState = new Set();
+  didWarnAboutContextTypeAndContextTypes = new Set();
+  didWarnAboutInvalidateContextType = new Set();
 
   var didWarnOnInvalidCallback = new Set();
 
@@ -49795,11 +49881,11 @@ var classComponentUpdater = {
   }
 };
 
-function checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextLegacyContext) {
+function checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextContext) {
   var instance = workInProgress.stateNode;
   if (typeof instance.shouldComponentUpdate === 'function') {
     startPhaseTimer(workInProgress, 'shouldComponentUpdate');
-    var shouldUpdate = instance.shouldComponentUpdate(newProps, newState, nextLegacyContext);
+    var shouldUpdate = instance.shouldComponentUpdate(newProps, newState, nextContext);
     stopPhaseTimer();
 
     {
@@ -49836,8 +49922,16 @@ function checkClassInstance(workInProgress, ctor, newProps) {
     !noGetDefaultPropsOnES6 ? warningWithoutStack$1(false, 'getDefaultProps was defined on %s, a plain JavaScript class. ' + 'This is only supported for classes created using React.createClass. ' + 'Use a static property to define defaultProps instead.', name) : void 0;
     var noInstancePropTypes = !instance.propTypes;
     !noInstancePropTypes ? warningWithoutStack$1(false, 'propTypes was defined as an instance property on %s. Use a static ' + 'property to define propTypes instead.', name) : void 0;
+    var noInstanceContextType = !instance.contextType;
+    !noInstanceContextType ? warningWithoutStack$1(false, 'contextType was defined as an instance property on %s. Use a static ' + 'property to define contextType instead.', name) : void 0;
     var noInstanceContextTypes = !instance.contextTypes;
     !noInstanceContextTypes ? warningWithoutStack$1(false, 'contextTypes was defined as an instance property on %s. Use a static ' + 'property to define contextTypes instead.', name) : void 0;
+
+    if (ctor.contextType && ctor.contextTypes && !didWarnAboutContextTypeAndContextTypes.has(ctor)) {
+      didWarnAboutContextTypeAndContextTypes.add(ctor);
+      warningWithoutStack$1(false, '%s declares both contextTypes and contextType static properties. ' + 'The legacy contextTypes property will be ignored.', name);
+    }
+
     var noComponentShouldUpdate = typeof instance.componentShouldUpdate !== 'function';
     !noComponentShouldUpdate ? warningWithoutStack$1(false, '%s has a method called ' + 'componentShouldUpdate(). Did you mean shouldComponentUpdate()? ' + 'The name is phrased as a question because the function is ' + 'expected to return a value.', name) : void 0;
     if (ctor.prototype && ctor.prototype.isPureReactComponent && typeof instance.shouldComponentUpdate !== 'undefined') {
@@ -49863,12 +49957,12 @@ function checkClassInstance(workInProgress, ctor, newProps) {
 
     var noInstanceGetDerivedStateFromProps = typeof instance.getDerivedStateFromProps !== 'function';
     !noInstanceGetDerivedStateFromProps ? warningWithoutStack$1(false, '%s: getDerivedStateFromProps() is defined as an instance method ' + 'and will be ignored. Instead, declare it as a static method.', name) : void 0;
-    var noInstanceGetDerivedStateFromCatch = typeof instance.getDerivedStateFromCatch !== 'function';
-    !noInstanceGetDerivedStateFromCatch ? warningWithoutStack$1(false, '%s: getDerivedStateFromCatch() is defined as an instance method ' + 'and will be ignored. Instead, declare it as a static method.', name) : void 0;
+    var noInstanceGetDerivedStateFromCatch = typeof instance.getDerivedStateFromError !== 'function';
+    !noInstanceGetDerivedStateFromCatch ? warningWithoutStack$1(false, '%s: getDerivedStateFromError() is defined as an instance method ' + 'and will be ignored. Instead, declare it as a static method.', name) : void 0;
     var noStaticGetSnapshotBeforeUpdate = typeof ctor.getSnapshotBeforeUpdate !== 'function';
     !noStaticGetSnapshotBeforeUpdate ? warningWithoutStack$1(false, '%s: getSnapshotBeforeUpdate() is defined as a static method ' + 'and will be ignored. Instead, declare it as an instance method.', name) : void 0;
     var _state = instance.state;
-    if (_state && (typeof _state !== 'object' || isArray(_state))) {
+    if (_state && (typeof _state !== 'object' || isArray$1(_state))) {
       warningWithoutStack$1(false, '%s.state: must be set to an object or null', name);
     }
     if (typeof instance.getChildContext === 'function') {
@@ -49888,10 +49982,25 @@ function adoptClassInstance(workInProgress, instance) {
 }
 
 function constructClassInstance(workInProgress, ctor, props, renderExpirationTime) {
-  var unmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
-  var contextTypes = ctor.contextTypes;
-  var isContextConsumer = contextTypes !== null && contextTypes !== undefined;
-  var context = isContextConsumer ? getMaskedContext(workInProgress, unmaskedContext) : emptyContextObject;
+  var isLegacyContextConsumer = false;
+  var unmaskedContext = emptyContextObject;
+  var context = null;
+  var contextType = ctor.contextType;
+  if (typeof contextType === 'object' && contextType !== null) {
+    {
+      if (contextType.$$typeof !== REACT_CONTEXT_TYPE && !didWarnAboutInvalidateContextType.has(ctor)) {
+        didWarnAboutInvalidateContextType.add(ctor);
+        warningWithoutStack$1(false, '%s defines an invalid contextType. ' + 'contextType should point to the Context object returned by React.createContext(). ' + 'Did you accidentally pass the Context.Provider instead?', getComponentName(ctor) || 'Component');
+      }
+    }
+
+    context = readContext$1(contextType);
+  } else {
+    unmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
+    var contextTypes = ctor.contextTypes;
+    isLegacyContextConsumer = contextTypes !== null && contextTypes !== undefined;
+    context = isLegacyContextConsumer ? getMaskedContext(workInProgress, unmaskedContext) : emptyContextObject;
+  }
 
   // Instantiate twice to help detect side-effects.
   {
@@ -49948,7 +50057,7 @@ function constructClassInstance(workInProgress, ctor, props, renderExpirationTim
 
   // Cache unmasked context so we can avoid recreating masked context unless necessary.
   // ReactFiberContext usually updates this cache but can't for newly-created instances.
-  if (isContextConsumer) {
+  if (isLegacyContextConsumer) {
     cacheContext(workInProgress, unmaskedContext, context);
   }
 
@@ -49976,14 +50085,14 @@ function callComponentWillMount(workInProgress, instance) {
   }
 }
 
-function callComponentWillReceiveProps(workInProgress, instance, newProps, nextLegacyContext) {
+function callComponentWillReceiveProps(workInProgress, instance, newProps, nextContext) {
   var oldState = instance.state;
   startPhaseTimer(workInProgress, 'componentWillReceiveProps');
   if (typeof instance.componentWillReceiveProps === 'function') {
-    instance.componentWillReceiveProps(newProps, nextLegacyContext);
+    instance.componentWillReceiveProps(newProps, nextContext);
   }
   if (typeof instance.UNSAFE_componentWillReceiveProps === 'function') {
-    instance.UNSAFE_componentWillReceiveProps(newProps, nextLegacyContext);
+    instance.UNSAFE_componentWillReceiveProps(newProps, nextContext);
   }
   stopPhaseTimer();
 
@@ -50006,12 +50115,17 @@ function mountClassInstance(workInProgress, ctor, newProps, renderExpirationTime
   }
 
   var instance = workInProgress.stateNode;
-  var unmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
-
   instance.props = newProps;
   instance.state = workInProgress.memoizedState;
   instance.refs = emptyRefsObject;
-  instance.context = getMaskedContext(workInProgress, unmaskedContext);
+
+  var contextType = ctor.contextType;
+  if (typeof contextType === 'object' && contextType !== null) {
+    instance.context = readContext$1(contextType);
+  } else {
+    var unmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
+    instance.context = getMaskedContext(workInProgress, unmaskedContext);
+  }
 
   {
     if (instance.state === newProps) {
@@ -50070,8 +50184,14 @@ function resumeMountClassInstance(workInProgress, ctor, newProps, renderExpirati
   instance.props = oldProps;
 
   var oldContext = instance.context;
-  var nextLegacyUnmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
-  var nextLegacyContext = getMaskedContext(workInProgress, nextLegacyUnmaskedContext);
+  var contextType = ctor.contextType;
+  var nextContext = void 0;
+  if (typeof contextType === 'object' && contextType !== null) {
+    nextContext = readContext$1(contextType);
+  } else {
+    var nextLegacyUnmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
+    nextContext = getMaskedContext(workInProgress, nextLegacyUnmaskedContext);
+  }
 
   var getDerivedStateFromProps = ctor.getDerivedStateFromProps;
   var hasNewLifecycles = typeof getDerivedStateFromProps === 'function' || typeof instance.getSnapshotBeforeUpdate === 'function';
@@ -50083,8 +50203,8 @@ function resumeMountClassInstance(workInProgress, ctor, newProps, renderExpirati
   // In order to support react-lifecycles-compat polyfilled components,
   // Unsafe lifecycles should not be invoked for components using the new APIs.
   if (!hasNewLifecycles && (typeof instance.UNSAFE_componentWillReceiveProps === 'function' || typeof instance.componentWillReceiveProps === 'function')) {
-    if (oldProps !== newProps || oldContext !== nextLegacyContext) {
-      callComponentWillReceiveProps(workInProgress, instance, newProps, nextLegacyContext);
+    if (oldProps !== newProps || oldContext !== nextContext) {
+      callComponentWillReceiveProps(workInProgress, instance, newProps, nextContext);
     }
   }
 
@@ -50111,7 +50231,7 @@ function resumeMountClassInstance(workInProgress, ctor, newProps, renderExpirati
     newState = workInProgress.memoizedState;
   }
 
-  var shouldUpdate = checkHasForceUpdateAfterProcessing() || checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextLegacyContext);
+  var shouldUpdate = checkHasForceUpdateAfterProcessing() || checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextContext);
 
   if (shouldUpdate) {
     // In order to support react-lifecycles-compat polyfilled components,
@@ -50146,7 +50266,7 @@ function resumeMountClassInstance(workInProgress, ctor, newProps, renderExpirati
   // if shouldComponentUpdate returns false.
   instance.props = newProps;
   instance.state = newState;
-  instance.context = nextLegacyContext;
+  instance.context = nextContext;
 
   return shouldUpdate;
 }
@@ -50159,8 +50279,14 @@ function updateClassInstance(current, workInProgress, ctor, newProps, renderExpi
   instance.props = oldProps;
 
   var oldContext = instance.context;
-  var nextLegacyUnmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
-  var nextLegacyContext = getMaskedContext(workInProgress, nextLegacyUnmaskedContext);
+  var contextType = ctor.contextType;
+  var nextContext = void 0;
+  if (typeof contextType === 'object' && contextType !== null) {
+    nextContext = readContext$1(contextType);
+  } else {
+    var nextUnmaskedContext = getUnmaskedContext(workInProgress, ctor, true);
+    nextContext = getMaskedContext(workInProgress, nextUnmaskedContext);
+  }
 
   var getDerivedStateFromProps = ctor.getDerivedStateFromProps;
   var hasNewLifecycles = typeof getDerivedStateFromProps === 'function' || typeof instance.getSnapshotBeforeUpdate === 'function';
@@ -50172,8 +50298,8 @@ function updateClassInstance(current, workInProgress, ctor, newProps, renderExpi
   // In order to support react-lifecycles-compat polyfilled components,
   // Unsafe lifecycles should not be invoked for components using the new APIs.
   if (!hasNewLifecycles && (typeof instance.UNSAFE_componentWillReceiveProps === 'function' || typeof instance.componentWillReceiveProps === 'function')) {
-    if (oldProps !== newProps || oldContext !== nextLegacyContext) {
-      callComponentWillReceiveProps(workInProgress, instance, newProps, nextLegacyContext);
+    if (oldProps !== newProps || oldContext !== nextContext) {
+      callComponentWillReceiveProps(workInProgress, instance, newProps, nextContext);
     }
   }
 
@@ -50208,7 +50334,7 @@ function updateClassInstance(current, workInProgress, ctor, newProps, renderExpi
     newState = workInProgress.memoizedState;
   }
 
-  var shouldUpdate = checkHasForceUpdateAfterProcessing() || checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextLegacyContext);
+  var shouldUpdate = checkHasForceUpdateAfterProcessing() || checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, oldState, newState, nextContext);
 
   if (shouldUpdate) {
     // In order to support react-lifecycles-compat polyfilled components,
@@ -50216,10 +50342,10 @@ function updateClassInstance(current, workInProgress, ctor, newProps, renderExpi
     if (!hasNewLifecycles && (typeof instance.UNSAFE_componentWillUpdate === 'function' || typeof instance.componentWillUpdate === 'function')) {
       startPhaseTimer(workInProgress, 'componentWillUpdate');
       if (typeof instance.componentWillUpdate === 'function') {
-        instance.componentWillUpdate(newProps, newState, nextLegacyContext);
+        instance.componentWillUpdate(newProps, newState, nextContext);
       }
       if (typeof instance.UNSAFE_componentWillUpdate === 'function') {
-        instance.UNSAFE_componentWillUpdate(newProps, newState, nextLegacyContext);
+        instance.UNSAFE_componentWillUpdate(newProps, newState, nextContext);
       }
       stopPhaseTimer();
     }
@@ -50253,7 +50379,7 @@ function updateClassInstance(current, workInProgress, ctor, newProps, renderExpi
   // if shouldComponentUpdate returns false.
   instance.props = newProps;
   instance.state = newState;
-  instance.context = nextLegacyContext;
+  instance.context = nextContext;
 
   return shouldUpdate;
 }
@@ -50298,7 +50424,7 @@ var warnForMissingKey = function (child) {};
   };
 }
 
-var isArray$1 = Array.isArray;
+var isArray = Array.isArray;
 
 function coerceRef(returnFiber, current$$1, element) {
   var mixedRef = element.ref;
@@ -50318,7 +50444,7 @@ function coerceRef(returnFiber, current$$1, element) {
       var inst = void 0;
       if (owner) {
         var ownerFiber = owner;
-        !(ownerFiber.tag === ClassComponent || ownerFiber.tag === ClassComponentLazy) ? invariant(false, 'Stateless function components cannot have refs.') : void 0;
+        !(ownerFiber.tag === ClassComponent) ? invariant(false, 'Function components cannot have refs.') : void 0;
         inst = ownerFiber.stateNode;
       }
       !inst ? invariant(false, 'Missing owner for string ref %s. This error is likely caused by a bug in React. Please file an issue.', mixedRef) : void 0;
@@ -50343,7 +50469,7 @@ function coerceRef(returnFiber, current$$1, element) {
       return ref;
     } else {
       !(typeof mixedRef === 'string') ? invariant(false, 'Expected ref to be a function, a string, an object returned by React.createRef(), or null.') : void 0;
-      !element._owner ? invariant(false, 'Element ref was specified as a string (%s) but no owner was set. This could happen for one of the following reasons:\n1. You may be adding a ref to a functional component\n2. You may be adding a ref to a component that was not created inside a component\'s render method\n3. You have multiple copies of React loaded\nSee https://fb.me/react-refs-must-have-owner for more information.', mixedRef) : void 0;
+      !element._owner ? invariant(false, 'Element ref was specified as a string (%s) but no owner was set. This could happen for one of the following reasons:\n1. You may be adding a ref to a function component\n2. You may be adding a ref to a component that was not created inside a component\'s render method\n3. You have multiple copies of React loaded\nSee https://fb.me/react-refs-must-have-owner for more information.', mixedRef) : void 0;
     }
   }
   return mixedRef;
@@ -50486,7 +50612,7 @@ function ChildReconciler(shouldTrackSideEffects) {
   }
 
   function updateElement(returnFiber, current$$1, element, expirationTime) {
-    if (current$$1 !== null && current$$1.type === element.type) {
+    if (current$$1 !== null && current$$1.elementType === element.type) {
       // Move based on index
       var existing = useFiber(current$$1, element.props, expirationTime);
       existing.ref = coerceRef(returnFiber, current$$1, element);
@@ -50560,7 +50686,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           }
       }
 
-      if (isArray$1(newChild) || getIteratorFn(newChild)) {
+      if (isArray(newChild) || getIteratorFn(newChild)) {
         var _created3 = createFiberFromFragment(newChild, returnFiber.mode, expirationTime, null);
         _created3.return = returnFiber;
         return _created3;
@@ -50616,7 +50742,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           }
       }
 
-      if (isArray$1(newChild) || getIteratorFn(newChild)) {
+      if (isArray(newChild) || getIteratorFn(newChild)) {
         if (key !== null) {
           return null;
         }
@@ -50661,7 +50787,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           }
       }
 
-      if (isArray$1(newChild) || getIteratorFn(newChild)) {
+      if (isArray(newChild) || getIteratorFn(newChild)) {
         var _matchedFiber3 = existingChildren.get(newIdx) || null;
         return updateFragment(returnFiber, _matchedFiber3, newChild, expirationTime, null);
       }
@@ -51028,7 +51154,7 @@ function ChildReconciler(shouldTrackSideEffects) {
       // TODO: If key === null and child.key === null, then this only applies to
       // the first item in the list.
       if (child.key === key) {
-        if (child.tag === Fragment ? element.type === REACT_FRAGMENT_TYPE : child.type === element.type) {
+        if (child.tag === Fragment ? element.type === REACT_FRAGMENT_TYPE : child.elementType === element.type) {
           deleteRemainingChildren(returnFiber, child.sibling);
           var existing = useFiber(child, element.type === REACT_FRAGMENT_TYPE ? element.props.children : element.props, expirationTime);
           existing.ref = coerceRef(returnFiber, child, element);
@@ -51120,7 +51246,7 @@ function ChildReconciler(shouldTrackSideEffects) {
       return placeSingleChild(reconcileSingleTextNode(returnFiber, currentFirstChild, '' + newChild, expirationTime));
     }
 
-    if (isArray$1(newChild)) {
+    if (isArray(newChild)) {
       return reconcileChildrenArray(returnFiber, currentFirstChild, newChild, expirationTime);
     }
 
@@ -51143,7 +51269,6 @@ function ChildReconciler(shouldTrackSideEffects) {
       // we already threw above.
       switch (returnFiber.tag) {
         case ClassComponent:
-        case ClassComponentLazy:
           {
             {
               var instance = returnFiber.stateNode;
@@ -51156,7 +51281,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         // Intentionally fall through to the next case, which handles both
         // functions and classes
         // eslint-disable-next-lined no-fallthrough
-        case FunctionalComponent:
+        case FunctionComponent:
           {
             var Component = returnFiber.type;
             invariant(false, '%s(...): Nothing was returned from render. This usually means a return statement is missing. Or, to render nothing, return null.', Component.displayName || Component.name || 'Component');
@@ -51458,40 +51583,49 @@ function resetHydrationState() {
   isHydrating = false;
 }
 
-function readLazyComponentType(thenable) {
-  var status = thenable._reactStatus;
+function readLazyComponentType(lazyComponent) {
+  var status = lazyComponent._status;
+  var result = lazyComponent._result;
   switch (status) {
     case Resolved:
-      var Component = thenable._reactResult;
-      return Component;
+      {
+        var Component = result;
+        return Component;
+      }
     case Rejected:
-      throw thenable._reactResult;
+      {
+        var error = result;
+        throw error;
+      }
     case Pending:
-      throw thenable;
+      {
+        var thenable = result;
+        throw thenable;
+      }
     default:
       {
-        thenable._reactStatus = Pending;
-        thenable.then(function (resolvedValue) {
-          if (thenable._reactStatus === Pending) {
-            thenable._reactStatus = Resolved;
-            if (typeof resolvedValue === 'object' && resolvedValue !== null) {
-              // If the `default` property is not empty, assume it's the result
-              // of an async import() and use that. Otherwise, use the
-              // resolved value itself.
-              var defaultExport = resolvedValue.default;
-              resolvedValue = defaultExport !== undefined && defaultExport !== null ? defaultExport : resolvedValue;
-            } else {
-              resolvedValue = resolvedValue;
+        lazyComponent._status = Pending;
+        var ctor = lazyComponent._ctor;
+        var _thenable = ctor();
+        _thenable.then(function (moduleObject) {
+          if (lazyComponent._status === Pending) {
+            var defaultExport = moduleObject.default;
+            {
+              if (defaultExport === undefined) {
+                warning$1(false, 'lazy: Expected the result of a dynamic import() call. ' + 'Instead received: %s\n\nYour code should look like: \n  ' + "const MyComponent = lazy(() => import('./MyComponent'))", moduleObject);
+              }
             }
-            thenable._reactResult = resolvedValue;
+            lazyComponent._status = Resolved;
+            lazyComponent._result = defaultExport;
           }
         }, function (error) {
-          if (thenable._reactStatus === Pending) {
-            thenable._reactStatus = Rejected;
-            thenable._reactResult = error;
+          if (lazyComponent._status === Pending) {
+            lazyComponent._status = Rejected;
+            lazyComponent._result = error;
           }
         });
-        throw thenable;
+        lazyComponent._result = _thenable;
+        throw _thenable;
       }
   }
 }
@@ -51499,13 +51633,15 @@ function readLazyComponentType(thenable) {
 var ReactCurrentOwner$3 = ReactSharedInternals.ReactCurrentOwner;
 
 var didWarnAboutBadClass = void 0;
-var didWarnAboutGetDerivedStateOnFunctionalComponent = void 0;
-var didWarnAboutStatelessRefs = void 0;
+var didWarnAboutContextTypeOnFunctionComponent = void 0;
+var didWarnAboutGetDerivedStateOnFunctionComponent = void 0;
+var didWarnAboutFunctionRefs = void 0;
 
 {
   didWarnAboutBadClass = {};
-  didWarnAboutGetDerivedStateOnFunctionalComponent = {};
-  didWarnAboutStatelessRefs = {};
+  didWarnAboutContextTypeOnFunctionComponent = {};
+  didWarnAboutGetDerivedStateOnFunctionComponent = {};
+  didWarnAboutFunctionRefs = {};
 }
 
 function reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime) {
@@ -51524,6 +51660,23 @@ function reconcileChildren(current$$1, workInProgress, nextChildren, renderExpir
     // let's throw it out.
     workInProgress.child = reconcileChildFibers(workInProgress, current$$1.child, nextChildren, renderExpirationTime);
   }
+}
+
+function forceUnmountCurrentAndReconcile(current$$1, workInProgress, nextChildren, renderExpirationTime) {
+  // This function is fork of reconcileChildren. It's used in cases where we
+  // want to reconcile without matching against the existing set. This has the
+  // effect of all current children being unmounted; even if the type and key
+  // are the same, the old child is unmounted and a new child is created.
+  //
+  // To do this, we're going to go through the reconcile algorithm twice. In
+  // the first pass, we schedule a deletion for all the current children by
+  // passing null.
+  workInProgress.child = reconcileChildFibers(workInProgress, current$$1.child, null, renderExpirationTime);
+  // In the second pass, we mount the new children. The trick here is that we
+  // pass null in place of where we usually pass the current child set. This has
+  // the effect of remounting all children regardless of whether their their
+  // identity matches.
+  workInProgress.child = reconcileChildFibers(workInProgress, null, nextChildren, renderExpirationTime);
 }
 
 function updateForwardRef(current$$1, workInProgress, type, nextProps, renderExpirationTime) {
@@ -51548,21 +51701,64 @@ function updateForwardRef(current$$1, workInProgress, type, nextProps, renderExp
   }
 
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextProps);
   return workInProgress.child;
+}
+
+function updateMemoComponent(current$$1, workInProgress, Component, nextProps, updateExpirationTime, renderExpirationTime) {
+  if (current$$1 === null) {
+    var type = Component.type;
+    if (isSimpleFunctionComponent(type) && Component.compare === null) {
+      // If this is a plain function component without default props,
+      // and with only the default shallow comparison, we upgrade it
+      // to a SimpleMemoComponent to allow fast path updates.
+      workInProgress.tag = SimpleMemoComponent;
+      workInProgress.type = type;
+      return updateSimpleMemoComponent(current$$1, workInProgress, type, nextProps, updateExpirationTime, renderExpirationTime);
+    }
+    var child = createFiberFromTypeAndProps(Component.type, null, nextProps, null, workInProgress.mode, renderExpirationTime);
+    child.ref = workInProgress.ref;
+    child.return = workInProgress;
+    workInProgress.child = child;
+    return child;
+  }
+  var currentChild = current$$1.child; // This is always exactly one child
+  if (updateExpirationTime === NoWork || updateExpirationTime > renderExpirationTime) {
+    // This will be the props with resolved defaultProps,
+    // unlike current.memoizedProps which will be the unresolved ones.
+    var prevProps = currentChild.memoizedProps;
+    // Default to shallow comparison
+    var compare = Component.compare;
+    compare = compare !== null ? compare : shallowEqual;
+    if (compare(prevProps, nextProps) && current$$1.ref === workInProgress.ref) {
+      return bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirationTime);
+    }
+  }
+  var newChild = createWorkInProgress(currentChild, nextProps, renderExpirationTime);
+  newChild.ref = workInProgress.ref;
+  newChild.return = workInProgress;
+  workInProgress.child = newChild;
+  return newChild;
+}
+
+function updateSimpleMemoComponent(current$$1, workInProgress, Component, nextProps, updateExpirationTime, renderExpirationTime) {
+  if (current$$1 !== null && (updateExpirationTime === NoWork || updateExpirationTime > renderExpirationTime)) {
+    var prevProps = current$$1.memoizedProps;
+    if (shallowEqual(prevProps, nextProps) && current$$1.ref === workInProgress.ref) {
+      return bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirationTime);
+    }
+  }
+  return updateFunctionComponent(current$$1, workInProgress, Component, nextProps, renderExpirationTime);
 }
 
 function updateFragment(current$$1, workInProgress, renderExpirationTime) {
   var nextChildren = workInProgress.pendingProps;
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextChildren);
   return workInProgress.child;
 }
 
 function updateMode(current$$1, workInProgress, renderExpirationTime) {
   var nextChildren = workInProgress.pendingProps.children;
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextChildren);
   return workInProgress.child;
 }
 
@@ -51573,7 +51769,6 @@ function updateProfiler(current$$1, workInProgress, renderExpirationTime) {
   var nextProps = workInProgress.pendingProps;
   var nextChildren = nextProps.children;
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextProps);
   return workInProgress.child;
 }
 
@@ -51585,7 +51780,7 @@ function markRef(current$$1, workInProgress) {
   }
 }
 
-function updateFunctionalComponent(current$$1, workInProgress, Component, nextProps, renderExpirationTime) {
+function updateFunctionComponent(current$$1, workInProgress, Component, nextProps, renderExpirationTime) {
   var unmaskedContext = getUnmaskedContext(workInProgress, Component, true);
   var context = getMaskedContext(workInProgress, unmaskedContext);
 
@@ -51601,7 +51796,6 @@ function updateFunctionalComponent(current$$1, workInProgress, Component, nextPr
   // React DevTools reads this flag.
   workInProgress.effectTag |= PerformedWork;
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextProps);
   return workInProgress.child;
 }
 
@@ -51618,17 +51812,26 @@ function updateClassComponent(current$$1, workInProgress, Component, nextProps, 
   }
   prepareToReadContext(workInProgress, renderExpirationTime);
 
+  var instance = workInProgress.stateNode;
   var shouldUpdate = void 0;
-  if (current$$1 === null) {
-    if (workInProgress.stateNode === null) {
-      // In the initial pass we might need to construct the instance.
-      constructClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
-      mountClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
-      shouldUpdate = true;
-    } else {
-      // In a resume, we'll already have an instance we can reuse.
-      shouldUpdate = resumeMountClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
+  if (instance === null) {
+    if (current$$1 !== null) {
+      // An class component without an instance only mounts if it suspended
+      // inside a non- concurrent tree, in an inconsistent state. We want to
+      // tree it like a new mount, even though an empty version of it already
+      // committed. Disconnect the alternate pointers.
+      current$$1.alternate = null;
+      workInProgress.alternate = null;
+      // Since this is conceptually a new fiber, schedule a Placement effect
+      workInProgress.effectTag |= Placement;
     }
+    // In the initial pass we might need to construct the instance.
+    constructClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
+    mountClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
+    shouldUpdate = true;
+  } else if (current$$1 === null) {
+    // In a resume, we'll already have an instance we can reuse.
+    shouldUpdate = resumeMountClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
   } else {
     shouldUpdate = updateClassInstance(current$$1, workInProgress, Component, nextProps, renderExpirationTime);
   }
@@ -51655,7 +51858,7 @@ function finishClassComponent(current$$1, workInProgress, Component, shouldUpdat
   // Rerender
   ReactCurrentOwner$3.current = workInProgress;
   var nextChildren = void 0;
-  if (didCaptureError && (!enableGetDerivedStateFromCatch || typeof Component.getDerivedStateFromCatch !== 'function')) {
+  if (didCaptureError && typeof Component.getDerivedStateFromError !== 'function') {
     // If we captured an error, but getDerivedStateFrom catch is not defined,
     // unmount all the children. componentDidCatch will schedule an update to
     // re-render a fallback. This is temporary until we migrate everyone to
@@ -51680,19 +51883,18 @@ function finishClassComponent(current$$1, workInProgress, Component, shouldUpdat
   // React DevTools reads this flag.
   workInProgress.effectTag |= PerformedWork;
   if (current$$1 !== null && didCaptureError) {
-    // If we're recovering from an error, reconcile twice: first to delete
-    // all the existing children.
-    reconcileChildren(current$$1, workInProgress, null, renderExpirationTime);
-    workInProgress.child = null;
-    // Now we can continue reconciling like normal. This has the effect of
-    // remounting all children regardless of whether their their
-    // identity matches.
+    // If we're recovering from an error, reconcile without reusing any of
+    // the existing children. Conceptually, the normal children and the children
+    // that are shown on error are two different sets, so we shouldn't reuse
+    // normal children even if their identities match.
+    forceUnmountCurrentAndReconcile(current$$1, workInProgress, nextChildren, renderExpirationTime);
+  } else {
+    reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
   }
-  reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  // Memoize props and state using the values we just used to render.
+
+  // Memoize state using the values we just used to render.
   // TODO: Restructure so we never read values from the instance.
-  memoizeState(workInProgress, instance.state);
-  memoizeProps(workInProgress, instance.props);
+  workInProgress.memoizedState = instance.state;
 
   // The context might have changed so we need to recalculate it.
   if (hasContext) {
@@ -51786,15 +51988,13 @@ function updateHostComponent(current$$1, workInProgress, renderExpirationTime) {
   markRef(current$$1, workInProgress);
 
   // Check the host config to see if the children are offscreen/hidden.
-  if (renderExpirationTime !== Never && workInProgress.mode & AsyncMode && shouldDeprioritizeSubtree(type, nextProps)) {
+  if (renderExpirationTime !== Never && workInProgress.mode & ConcurrentMode && shouldDeprioritizeSubtree(type, nextProps)) {
     // Schedule this fiber to re-render at offscreen priority. Then bailout.
     workInProgress.expirationTime = Never;
-    workInProgress.memoizedProps = nextProps;
     return null;
   }
 
   reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-  memoizeProps(workInProgress, nextProps);
   return workInProgress.child;
 }
 
@@ -51802,8 +52002,6 @@ function updateHostText(current$$1, workInProgress) {
   if (current$$1 === null) {
     tryToClaimNextHydratableInstance(workInProgress);
   }
-  var nextProps = workInProgress.pendingProps;
-  memoizeProps(workInProgress, nextProps);
   // Nothing to do here. This is terminal. We'll do the completion step
   // immediately after.
   return null;
@@ -51824,36 +52022,110 @@ function resolveDefaultProps(Component, baseProps) {
   return baseProps;
 }
 
-function mountIndeterminateComponent(current$$1, workInProgress, Component, renderExpirationTime) {
-  !(current$$1 === null) ? invariant(false, 'An indeterminate component should never have mounted. This error is likely caused by a bug in React. Please file an issue.') : void 0;
-
-  var props = workInProgress.pendingProps;
-  if (typeof Component === 'object' && Component !== null && typeof Component.then === 'function') {
-    Component = readLazyComponentType(Component);
-    var resolvedTag = workInProgress.tag = resolveLazyComponentTag(workInProgress, Component);
-    var resolvedProps = resolveDefaultProps(Component, props);
-    switch (resolvedTag) {
-      case FunctionalComponentLazy:
-        {
-          return updateFunctionalComponent(current$$1, workInProgress, Component, resolvedProps, renderExpirationTime);
-        }
-      case ClassComponentLazy:
-        {
-          return updateClassComponent(current$$1, workInProgress, Component, resolvedProps, renderExpirationTime);
-        }
-      case ForwardRefLazy:
-        {
-          return updateForwardRef(current$$1, workInProgress, Component, resolvedProps, renderExpirationTime);
-        }
-      default:
-        {
-          // This message intentionally doesn't metion ForwardRef because the
-          // fact that it's a separate type of work is an implementation detail.
-          invariant(false, 'Element type is invalid. Received a promise that resolves to: %s. Promise elements must resolve to a class or function.', Component);
-        }
-    }
+function mountLazyComponent(_current, workInProgress, elementType, updateExpirationTime, renderExpirationTime) {
+  if (_current !== null) {
+    // An lazy component only mounts if it suspended inside a non-
+    // concurrent tree, in an inconsistent state. We want to tree it like
+    // a new mount, even though an empty version of it already committed.
+    // Disconnect the alternate pointers.
+    _current.alternate = null;
+    workInProgress.alternate = null;
+    // Since this is conceptually a new fiber, schedule a Placement effect
+    workInProgress.effectTag |= Placement;
   }
 
+  var props = workInProgress.pendingProps;
+  // We can't start a User Timing measurement with correct label yet.
+  // Cancel and resume right after we know the tag.
+  cancelWorkTimer(workInProgress);
+  var Component = readLazyComponentType(elementType);
+  // Store the unwrapped component in the type.
+  workInProgress.type = Component;
+  var resolvedTag = workInProgress.tag = resolveLazyComponentTag(Component);
+  startWorkTimer(workInProgress);
+  var resolvedProps = resolveDefaultProps(Component, props);
+  var child = void 0;
+  switch (resolvedTag) {
+    case FunctionComponent:
+      {
+        child = updateFunctionComponent(null, workInProgress, Component, resolvedProps, renderExpirationTime);
+        break;
+      }
+    case ClassComponent:
+      {
+        child = updateClassComponent(null, workInProgress, Component, resolvedProps, renderExpirationTime);
+        break;
+      }
+    case ForwardRef:
+      {
+        child = updateForwardRef(null, workInProgress, Component, resolvedProps, renderExpirationTime);
+        break;
+      }
+    case MemoComponent:
+      {
+        child = updateMemoComponent(null, workInProgress, Component, resolveDefaultProps(Component.type, resolvedProps), // The inner type can have defaults too
+        updateExpirationTime, renderExpirationTime);
+        break;
+      }
+    default:
+      {
+        // This message intentionally doesn't metion ForwardRef or MemoComponent
+        // because the fact that it's a separate type of work is an
+        // implementation detail.
+        invariant(false, 'Element type is invalid. Received a promise that resolves to: %s. Promise elements must resolve to a class or function.', Component);
+      }
+  }
+  return child;
+}
+
+function mountIncompleteClassComponent(_current, workInProgress, Component, nextProps, renderExpirationTime) {
+  if (_current !== null) {
+    // An incomplete component only mounts if it suspended inside a non-
+    // concurrent tree, in an inconsistent state. We want to tree it like
+    // a new mount, even though an empty version of it already committed.
+    // Disconnect the alternate pointers.
+    _current.alternate = null;
+    workInProgress.alternate = null;
+    // Since this is conceptually a new fiber, schedule a Placement effect
+    workInProgress.effectTag |= Placement;
+  }
+
+  // Promote the fiber to a class and try rendering again.
+  workInProgress.tag = ClassComponent;
+
+  // The rest of this function is a fork of `updateClassComponent`
+
+  // Push context providers early to prevent context stack mismatches.
+  // During mounting we don't know the child context yet as the instance doesn't exist.
+  // We will invalidate the child context in finishClassComponent() right after rendering.
+  var hasContext = void 0;
+  if (isContextProvider(Component)) {
+    hasContext = true;
+    pushContextProvider(workInProgress);
+  } else {
+    hasContext = false;
+  }
+  prepareToReadContext(workInProgress, renderExpirationTime);
+
+  constructClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
+  mountClassInstance(workInProgress, Component, nextProps, renderExpirationTime);
+
+  return finishClassComponent(null, workInProgress, Component, true, hasContext, renderExpirationTime);
+}
+
+function mountIndeterminateComponent(_current, workInProgress, Component, renderExpirationTime) {
+  if (_current !== null) {
+    // An indeterminate component only mounts if it suspended inside a non-
+    // concurrent tree, in an inconsistent state. We want to tree it like
+    // a new mount, even though an empty version of it already committed.
+    // Disconnect the alternate pointers.
+    _current.alternate = null;
+    workInProgress.alternate = null;
+    // Since this is conceptually a new fiber, schedule a Placement effect
+    workInProgress.effectTag |= Placement;
+  }
+
+  var props = workInProgress.pendingProps;
   var unmaskedContext = getUnmaskedContext(workInProgress, Component, false);
   var context = getMaskedContext(workInProgress, unmaskedContext);
 
@@ -51905,13 +52177,13 @@ function mountIndeterminateComponent(current$$1, workInProgress, Component, rend
 
     adoptClassInstance(workInProgress, value);
     mountClassInstance(workInProgress, Component, props, renderExpirationTime);
-    return finishClassComponent(current$$1, workInProgress, Component, true, hasContext, renderExpirationTime);
+    return finishClassComponent(null, workInProgress, Component, true, hasContext, renderExpirationTime);
   } else {
-    // Proceed under the assumption that this is a functional component
-    workInProgress.tag = FunctionalComponent;
+    // Proceed under the assumption that this is a function component
+    workInProgress.tag = FunctionComponent;
     {
       if (Component) {
-        !!Component.childContextTypes ? warningWithoutStack$1(false, '%s(...): childContextTypes cannot be defined on a functional component.', Component.displayName || Component.name || 'Component') : void 0;
+        !!Component.childContextTypes ? warningWithoutStack$1(false, '%s(...): childContextTypes cannot be defined on a function component.', Component.displayName || Component.name || 'Component') : void 0;
       }
       if (workInProgress.ref !== null) {
         var info = '';
@@ -51925,81 +52197,190 @@ function mountIndeterminateComponent(current$$1, workInProgress, Component, rend
         if (debugSource) {
           warningKey = debugSource.fileName + ':' + debugSource.lineNumber;
         }
-        if (!didWarnAboutStatelessRefs[warningKey]) {
-          didWarnAboutStatelessRefs[warningKey] = true;
-          warning$1(false, 'Stateless function components cannot be given refs. ' + 'Attempts to access this ref will fail.%s', info);
+        if (!didWarnAboutFunctionRefs[warningKey]) {
+          didWarnAboutFunctionRefs[warningKey] = true;
+          warning$1(false, 'Function components cannot be given refs. ' + 'Attempts to access this ref will fail.%s', info);
         }
       }
 
       if (typeof Component.getDerivedStateFromProps === 'function') {
         var _componentName = getComponentName(Component) || 'Unknown';
 
-        if (!didWarnAboutGetDerivedStateOnFunctionalComponent[_componentName]) {
-          warningWithoutStack$1(false, '%s: Stateless functional components do not support getDerivedStateFromProps.', _componentName);
-          didWarnAboutGetDerivedStateOnFunctionalComponent[_componentName] = true;
+        if (!didWarnAboutGetDerivedStateOnFunctionComponent[_componentName]) {
+          warningWithoutStack$1(false, '%s: Function components do not support getDerivedStateFromProps.', _componentName);
+          didWarnAboutGetDerivedStateOnFunctionComponent[_componentName] = true;
+        }
+      }
+
+      if (typeof Component.contextType === 'object' && Component.contextType !== null) {
+        var _componentName2 = getComponentName(Component) || 'Unknown';
+
+        if (!didWarnAboutContextTypeOnFunctionComponent[_componentName2]) {
+          warningWithoutStack$1(false, '%s: Function components do not support contextType.', _componentName2);
+          didWarnAboutContextTypeOnFunctionComponent[_componentName2] = true;
         }
       }
     }
-    reconcileChildren(current$$1, workInProgress, value, renderExpirationTime);
-    memoizeProps(workInProgress, props);
+    reconcileChildren(null, workInProgress, value, renderExpirationTime);
     return workInProgress.child;
   }
 }
 
-function updatePlaceholderComponent(current$$1, workInProgress, renderExpirationTime) {
-  if (enableSuspense) {
-    var nextProps = workInProgress.pendingProps;
+function updateSuspenseComponent(current$$1, workInProgress, renderExpirationTime) {
+  var mode = workInProgress.mode;
+  var nextProps = workInProgress.pendingProps;
 
-    // Check if we already attempted to render the normal state. If we did,
-    // and we timed out, render the placeholder state.
-    var alreadyCaptured = (workInProgress.effectTag & DidCapture) === NoEffect;
-
-    var nextDidTimeout = void 0;
-    if (current$$1 !== null && workInProgress.updateQueue !== null) {
-      // We're outside strict mode. Something inside this Placeholder boundary
-      // suspended during the last commit. Switch to the placholder.
-      workInProgress.updateQueue = null;
-      nextDidTimeout = true;
-      // If we're recovering from an error, reconcile twice: first to delete
-      // all the existing children.
-      reconcileChildren(current$$1, workInProgress, null, renderExpirationTime);
-      current$$1.child = null;
-      // Now we can continue reconciling like normal. This has the effect of
-      // remounting all children regardless of whether their their
-      // identity matches.
+  // We should attempt to render the primary children unless this boundary
+  // already suspended during this render (`alreadyCaptured` is true).
+  var nextState = workInProgress.memoizedState;
+  if (nextState === null) {
+    // An empty suspense state means this boundary has not yet timed out.
+  } else {
+    if (!nextState.alreadyCaptured) {
+      // Since we haven't already suspended during this commit, clear the
+      // existing suspense state. We'll try rendering again.
+      nextState = null;
     } else {
-      nextDidTimeout = !alreadyCaptured;
-    }
-
-    if ((workInProgress.mode & StrictMode) !== NoEffect) {
-      if (nextDidTimeout) {
-        // If the timed-out view commits, schedule an update effect to record
-        // the committed time.
-        workInProgress.effectTag |= Update;
+      // Something in this boundary's subtree already suspended. Switch to
+      // rendering the fallback children. Set `alreadyCaptured` to true.
+      if (current$$1 !== null && nextState === current$$1.memoizedState) {
+        // Create a new suspense state to avoid mutating the current tree's.
+        nextState = {
+          alreadyCaptured: true,
+          didTimeout: true,
+          timedOutAt: nextState.timedOutAt
+        };
       } else {
-        // The state node points to the time at which placeholder timed out.
-        // We can clear it once we switch back to the normal children.
-        workInProgress.stateNode = null;
+        // Already have a clone, so it's safe to mutate.
+        nextState.alreadyCaptured = true;
+        nextState.didTimeout = true;
       }
     }
-
-    // If the `children` prop is a function, treat it like a render prop.
-    // TODO: This is temporary until we finalize a lower level API.
-    var children = nextProps.children;
-    var nextChildren = void 0;
-    if (typeof children === 'function') {
-      nextChildren = children(nextDidTimeout);
-    } else {
-      nextChildren = nextDidTimeout ? nextProps.fallback : children;
-    }
-
-    workInProgress.memoizedProps = nextProps;
-    workInProgress.memoizedState = nextDidTimeout;
-    reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-    return workInProgress.child;
-  } else {
-    return null;
   }
+  var nextDidTimeout = nextState !== null && nextState.didTimeout;
+
+  // This next part is a bit confusing. If the children timeout, we switch to
+  // showing the fallback children in place of the "primary" children.
+  // However, we don't want to delete the primary children because then their
+  // state will be lost (both the React state and the host state, e.g.
+  // uncontrolled form inputs). Instead we keep them mounted and hide them.
+  // Both the fallback children AND the primary children are rendered at the
+  // same time. Once the primary children are un-suspended, we can delete
+  // the fallback children — don't need to preserve their state.
+  //
+  // The two sets of children are siblings in the host environment, but
+  // semantically, for purposes of reconciliation, they are two separate sets.
+  // So we store them using two fragment fibers.
+  //
+  // However, we want to avoid allocating extra fibers for every placeholder.
+  // They're only necessary when the children time out, because that's the
+  // only time when both sets are mounted.
+  //
+  // So, the extra fragment fibers are only used if the children time out.
+  // Otherwise, we render the primary children directly. This requires some
+  // custom reconciliation logic to preserve the state of the primary
+  // children. It's essentially a very basic form of re-parenting.
+
+  // `child` points to the child fiber. In the normal case, this is the first
+  // fiber of the primary children set. In the timed-out case, it's a
+  // a fragment fiber containing the primary children.
+  var child = void 0;
+  // `next` points to the next fiber React should render. In the normal case,
+  // it's the same as `child`: the first fiber of the primary children set.
+  // In the timed-out case, it's a fragment fiber containing the *fallback*
+  // children -- we skip over the primary children entirely.
+  var next = void 0;
+  if (current$$1 === null) {
+    // This is the initial mount. This branch is pretty simple because there's
+    // no previous state that needs to be preserved.
+    if (nextDidTimeout) {
+      // Mount separate fragments for primary and fallback children.
+      var nextFallbackChildren = nextProps.fallback;
+      var primaryChildFragment = createFiberFromFragment(null, mode, NoWork, null);
+      var fallbackChildFragment = createFiberFromFragment(nextFallbackChildren, mode, renderExpirationTime, null);
+      primaryChildFragment.sibling = fallbackChildFragment;
+      child = primaryChildFragment;
+      // Skip the primary children, and continue working on the
+      // fallback children.
+      next = fallbackChildFragment;
+      child.return = next.return = workInProgress;
+    } else {
+      // Mount the primary children without an intermediate fragment fiber.
+      var nextPrimaryChildren = nextProps.children;
+      child = next = mountChildFibers(workInProgress, null, nextPrimaryChildren, renderExpirationTime);
+    }
+  } else {
+    // This is an update. This branch is more complicated because we need to
+    // ensure the state of the primary children is preserved.
+    var prevState = current$$1.memoizedState;
+    var prevDidTimeout = prevState !== null && prevState.didTimeout;
+    if (prevDidTimeout) {
+      // The current tree already timed out. That means each child set is
+      var currentPrimaryChildFragment = current$$1.child;
+      var currentFallbackChildFragment = currentPrimaryChildFragment.sibling;
+      if (nextDidTimeout) {
+        // Still timed out. Reuse the current primary children by cloning
+        // its fragment. We're going to skip over these entirely.
+        var _nextFallbackChildren = nextProps.fallback;
+        var _primaryChildFragment = createWorkInProgress(currentPrimaryChildFragment, currentPrimaryChildFragment.pendingProps, NoWork);
+        _primaryChildFragment.effectTag |= Placement;
+        // Clone the fallback child fragment, too. These we'll continue
+        // working on.
+        var _fallbackChildFragment = _primaryChildFragment.sibling = createWorkInProgress(currentFallbackChildFragment, _nextFallbackChildren, currentFallbackChildFragment.expirationTime);
+        _fallbackChildFragment.effectTag |= Placement;
+        child = _primaryChildFragment;
+        _primaryChildFragment.childExpirationTime = NoWork;
+        // Skip the primary children, and continue working on the
+        // fallback children.
+        next = _fallbackChildFragment;
+        child.return = next.return = workInProgress;
+      } else {
+        // No longer suspended. Switch back to showing the primary children,
+        // and remove the intermediate fragment fiber.
+        var _nextPrimaryChildren = nextProps.children;
+        var currentPrimaryChild = currentPrimaryChildFragment.child;
+        var currentFallbackChild = currentFallbackChildFragment.child;
+        var primaryChild = reconcileChildFibers(workInProgress, currentPrimaryChild, _nextPrimaryChildren, renderExpirationTime);
+        // Delete the fallback children.
+        reconcileChildFibers(workInProgress, currentFallbackChild, null, renderExpirationTime);
+        // Continue rendering the children, like we normally do.
+        child = next = primaryChild;
+      }
+    } else {
+      // The current tree has not already timed out. That means the primary
+      var _currentPrimaryChild = current$$1.child;
+      if (nextDidTimeout) {
+        // Timed out. Wrap the children in a fragment fiber to keep them
+        // separate from the fallback children.
+        var _nextFallbackChildren2 = nextProps.fallback;
+        var _primaryChildFragment2 = createFiberFromFragment(
+        // It shouldn't matter what the pending props are because we aren't
+        // going to render this fragment.
+        null, mode, NoWork, null);
+        _primaryChildFragment2.effectTag |= Placement;
+        _primaryChildFragment2.child = _currentPrimaryChild;
+        _currentPrimaryChild.return = _primaryChildFragment2;
+        // Create a fragment from the fallback children, too.
+        var _fallbackChildFragment2 = _primaryChildFragment2.sibling = createFiberFromFragment(_nextFallbackChildren2, mode, renderExpirationTime, null);
+        _fallbackChildFragment2.effectTag |= Placement;
+        child = _primaryChildFragment2;
+        _primaryChildFragment2.childExpirationTime = NoWork;
+        // Skip the primary children, and continue working on the
+        // fallback children.
+        next = _fallbackChildFragment2;
+        child.return = next.return = workInProgress;
+      } else {
+        // Still haven't timed out.  Continue rendering the children, like we
+        // normally do.
+        var _nextPrimaryChildren2 = nextProps.children;
+        next = child = reconcileChildFibers(workInProgress, _currentPrimaryChild, _nextPrimaryChildren2, renderExpirationTime);
+      }
+    }
+  }
+
+  workInProgress.memoizedState = nextState;
+  workInProgress.child = child;
+  return next;
 }
 
 function updatePortalComponent(current$$1, workInProgress, renderExpirationTime) {
@@ -52012,10 +52393,8 @@ function updatePortalComponent(current$$1, workInProgress, renderExpirationTime)
     // the root always starts with a "current" with a null child.
     // TODO: Consider unifying this with how the root works.
     workInProgress.child = reconcileChildFibers(workInProgress, null, nextChildren, renderExpirationTime);
-    memoizeProps(workInProgress, nextChildren);
   } else {
     reconcileChildren(current$$1, workInProgress, nextChildren, renderExpirationTime);
-    memoizeProps(workInProgress, nextChildren);
   }
   return workInProgress.child;
 }
@@ -52028,7 +52407,6 @@ function updateContextProvider(current$$1, workInProgress, renderExpirationTime)
   var oldProps = workInProgress.memoizedProps;
 
   var newValue = newProps.value;
-  workInProgress.memoizedProps = newProps;
 
   {
     var providerPropTypes = workInProgress.type.propTypes;
@@ -52060,8 +52438,32 @@ function updateContextProvider(current$$1, workInProgress, renderExpirationTime)
   return workInProgress.child;
 }
 
+var hasWarnedAboutUsingContextAsConsumer = false;
+
 function updateContextConsumer(current$$1, workInProgress, renderExpirationTime) {
   var context = workInProgress.type;
+  // The logic below for Context differs depending on PROD or DEV mode. In
+  // DEV mode, we create a separate object for Context.Consumer that acts
+  // like a proxy to Context. This proxy object adds unnecessary code in PROD
+  // so we use the old behaviour (Context.Consumer references Context) to
+  // reduce size and overhead. The separate object references context via
+  // a property called "_context", which also gives us the ability to check
+  // in DEV mode if this property exists or not and warn if it does not.
+  {
+    if (context._context === undefined) {
+      // This may be because it's a Context (rather than a Consumer).
+      // Or it may be because it's older React where they're the same thing.
+      // We only want to warn if we're sure it's a new React.
+      if (context !== context.Consumer) {
+        if (!hasWarnedAboutUsingContextAsConsumer) {
+          hasWarnedAboutUsingContextAsConsumer = true;
+          warning$1(false, 'Rendering <Context> directly is not supported and will be removed in ' + 'a future major release. Did you mean to render <Context.Consumer> instead?');
+        }
+      }
+    } else {
+      context = context._context;
+    }
+  }
   var newProps = workInProgress.pendingProps;
   var render = newProps.children;
 
@@ -52082,7 +52484,6 @@ function updateContextConsumer(current$$1, workInProgress, renderExpirationTime)
   // React DevTools reads this flag.
   workInProgress.effectTag |= PerformedWork;
   reconcileChildren(current$$1, workInProgress, newChildren, renderExpirationTime);
-  workInProgress.memoizedProps = newProps;
   return workInProgress.child;
 }
 
@@ -52133,64 +52534,78 @@ function bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirati
   }
 }
 
-// TODO: Delete memoizeProps/State and move to reconcile/bailout instead
-function memoizeProps(workInProgress, nextProps) {
-  workInProgress.memoizedProps = nextProps;
-}
-
-function memoizeState(workInProgress, nextState) {
-  workInProgress.memoizedState = nextState;
-  // Don't reset the updateQueue, in case there are pending updates. Resetting
-  // is handled by processUpdateQueue.
-}
-
 function beginWork(current$$1, workInProgress, renderExpirationTime) {
   var updateExpirationTime = workInProgress.expirationTime;
-  if (!hasContextChanged() && (updateExpirationTime === NoWork || updateExpirationTime > renderExpirationTime)) {
-    // This fiber does not have any pending work. Bailout without entering
-    // the begin phase. There's still some bookkeeping we that needs to be done
-    // in this optimized path, mostly pushing stuff onto the stack.
-    switch (workInProgress.tag) {
-      case HostRoot:
-        pushHostRootContext(workInProgress);
-        resetHydrationState();
-        break;
-      case HostComponent:
-        pushHostContext(workInProgress);
-        break;
-      case ClassComponent:
-        {
-          var Component = workInProgress.type;
-          if (isContextProvider(Component)) {
-            pushContextProvider(workInProgress);
+
+  if (current$$1 !== null) {
+    var oldProps = current$$1.memoizedProps;
+    var newProps = workInProgress.pendingProps;
+    if (oldProps === newProps && !hasContextChanged() && (updateExpirationTime === NoWork || updateExpirationTime > renderExpirationTime)) {
+      // This fiber does not have any pending work. Bailout without entering
+      // the begin phase. There's still some bookkeeping we that needs to be done
+      // in this optimized path, mostly pushing stuff onto the stack.
+      switch (workInProgress.tag) {
+        case HostRoot:
+          pushHostRootContext(workInProgress);
+          resetHydrationState();
+          break;
+        case HostComponent:
+          pushHostContext(workInProgress);
+          break;
+        case ClassComponent:
+          {
+            var Component = workInProgress.type;
+            if (isContextProvider(Component)) {
+              pushContextProvider(workInProgress);
+            }
+            break;
+          }
+        case HostPortal:
+          pushHostContainer(workInProgress, workInProgress.stateNode.containerInfo);
+          break;
+        case ContextProvider:
+          {
+            var newValue = workInProgress.memoizedProps.value;
+            pushProvider(workInProgress, newValue);
+            break;
+          }
+        case Profiler:
+          if (enableProfilerTimer) {
+            workInProgress.effectTag |= Update;
           }
           break;
-        }
-      case ClassComponentLazy:
-        {
-          var thenable = workInProgress.type;
-          var _Component = getResultFromResolvedThenable(thenable);
-          if (isContextProvider(_Component)) {
-            pushContextProvider(workInProgress);
+        case SuspenseComponent:
+          {
+            var state = workInProgress.memoizedState;
+            var didTimeout = state !== null && state.didTimeout;
+            if (didTimeout) {
+              // If this boundary is currently timed out, we need to decide
+              // whether to retry the primary children, or to skip over it and
+              // go straight to the fallback. Check the priority of the primary
+              var primaryChildFragment = workInProgress.child;
+              var primaryChildExpirationTime = primaryChildFragment.childExpirationTime;
+              if (primaryChildExpirationTime !== NoWork && primaryChildExpirationTime <= renderExpirationTime) {
+                // The primary children have pending work. Use the normal path
+                // to attempt to render the primary children again.
+                return updateSuspenseComponent(current$$1, workInProgress, renderExpirationTime);
+              } else {
+                // The primary children do not have pending work with sufficient
+                // priority. Bailout.
+                var child = bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirationTime);
+                if (child !== null) {
+                  // The fallback children have pending work. Skip over the
+                  // primary children and work on the fallback.
+                  return child.sibling;
+                } else {
+                  return null;
+                }
+              }
+            }
+            break;
           }
-          break;
-        }
-      case HostPortal:
-        pushHostContainer(workInProgress, workInProgress.stateNode.containerInfo);
-        break;
-      case ContextProvider:
-        {
-          var newValue = workInProgress.memoizedProps.value;
-          pushProvider(workInProgress, newValue);
-          break;
-        }
-      case Profiler:
-        if (enableProfilerTimer) {
-          workInProgress.effectTag |= Update;
-        }
-        break;
+      }
+      return bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirationTime);
     }
-    return bailoutOnAlreadyFinishedWork(current$$1, workInProgress, renderExpirationTime);
   }
 
   // Before entering the begin phase, clear the expiration time.
@@ -52199,38 +52614,27 @@ function beginWork(current$$1, workInProgress, renderExpirationTime) {
   switch (workInProgress.tag) {
     case IndeterminateComponent:
       {
-        var _Component3 = workInProgress.type;
-        return mountIndeterminateComponent(current$$1, workInProgress, _Component3, renderExpirationTime);
+        var elementType = workInProgress.elementType;
+        return mountIndeterminateComponent(current$$1, workInProgress, elementType, renderExpirationTime);
       }
-    case FunctionalComponent:
+    case LazyComponent:
       {
-        var _Component4 = workInProgress.type;
-        var _unresolvedProps = workInProgress.pendingProps;
-        return updateFunctionalComponent(current$$1, workInProgress, _Component4, _unresolvedProps, renderExpirationTime);
+        var _elementType = workInProgress.elementType;
+        return mountLazyComponent(current$$1, workInProgress, _elementType, updateExpirationTime, renderExpirationTime);
       }
-    case FunctionalComponentLazy:
+    case FunctionComponent:
       {
-        var _thenable2 = workInProgress.type;
-        var _Component5 = getResultFromResolvedThenable(_thenable2);
-        var _unresolvedProps2 = workInProgress.pendingProps;
-        var _child = updateFunctionalComponent(current$$1, workInProgress, _Component5, resolveDefaultProps(_Component5, _unresolvedProps2), renderExpirationTime);
-        workInProgress.memoizedProps = _unresolvedProps2;
-        return _child;
+        var _Component = workInProgress.type;
+        var unresolvedProps = workInProgress.pendingProps;
+        var resolvedProps = workInProgress.elementType === _Component ? unresolvedProps : resolveDefaultProps(_Component, unresolvedProps);
+        return updateFunctionComponent(current$$1, workInProgress, _Component, resolvedProps, renderExpirationTime);
       }
     case ClassComponent:
       {
-        var _Component6 = workInProgress.type;
-        var _unresolvedProps3 = workInProgress.pendingProps;
-        return updateClassComponent(current$$1, workInProgress, _Component6, _unresolvedProps3, renderExpirationTime);
-      }
-    case ClassComponentLazy:
-      {
-        var _thenable3 = workInProgress.type;
-        var _Component7 = getResultFromResolvedThenable(_thenable3);
-        var _unresolvedProps4 = workInProgress.pendingProps;
-        var _child2 = updateClassComponent(current$$1, workInProgress, _Component7, resolveDefaultProps(_Component7, _unresolvedProps4), renderExpirationTime);
-        workInProgress.memoizedProps = _unresolvedProps4;
-        return _child2;
+        var _Component2 = workInProgress.type;
+        var _unresolvedProps = workInProgress.pendingProps;
+        var _resolvedProps = workInProgress.elementType === _Component2 ? _unresolvedProps : resolveDefaultProps(_Component2, _unresolvedProps);
+        return updateClassComponent(current$$1, workInProgress, _Component2, _resolvedProps, renderExpirationTime);
       }
     case HostRoot:
       return updateHostRoot(current$$1, workInProgress, renderExpirationTime);
@@ -52238,22 +52642,17 @@ function beginWork(current$$1, workInProgress, renderExpirationTime) {
       return updateHostComponent(current$$1, workInProgress, renderExpirationTime);
     case HostText:
       return updateHostText(current$$1, workInProgress);
-    case PlaceholderComponent:
-      return updatePlaceholderComponent(current$$1, workInProgress, renderExpirationTime);
+    case SuspenseComponent:
+      return updateSuspenseComponent(current$$1, workInProgress, renderExpirationTime);
     case HostPortal:
       return updatePortalComponent(current$$1, workInProgress, renderExpirationTime);
     case ForwardRef:
       {
         var type = workInProgress.type;
-        return updateForwardRef(current$$1, workInProgress, type, workInProgress.pendingProps, renderExpirationTime);
+        var _unresolvedProps2 = workInProgress.pendingProps;
+        var _resolvedProps2 = workInProgress.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
+        return updateForwardRef(current$$1, workInProgress, type, _resolvedProps2, renderExpirationTime);
       }
-    case ForwardRefLazy:
-      var _thenable = workInProgress.type;
-      var _Component2 = getResultFromResolvedThenable(_thenable);
-      var unresolvedProps = workInProgress.pendingProps;
-      var child = updateForwardRef(current$$1, workInProgress, _Component2, resolveDefaultProps(_Component2, unresolvedProps), renderExpirationTime);
-      workInProgress.memoizedProps = unresolvedProps;
-      return child;
     case Fragment:
       return updateFragment(current$$1, workInProgress, renderExpirationTime);
     case Mode:
@@ -52264,6 +52663,24 @@ function beginWork(current$$1, workInProgress, renderExpirationTime) {
       return updateContextProvider(current$$1, workInProgress, renderExpirationTime);
     case ContextConsumer:
       return updateContextConsumer(current$$1, workInProgress, renderExpirationTime);
+    case MemoComponent:
+      {
+        var _type = workInProgress.type;
+        var _unresolvedProps3 = workInProgress.pendingProps;
+        var _resolvedProps3 = resolveDefaultProps(_type.type, _unresolvedProps3);
+        return updateMemoComponent(current$$1, workInProgress, _type, _resolvedProps3, updateExpirationTime, renderExpirationTime);
+      }
+    case SimpleMemoComponent:
+      {
+        return updateSimpleMemoComponent(current$$1, workInProgress, workInProgress.type, workInProgress.pendingProps, updateExpirationTime, renderExpirationTime);
+      }
+    case IncompleteClassComponent:
+      {
+        var _Component3 = workInProgress.type;
+        var _unresolvedProps4 = workInProgress.pendingProps;
+        var _resolvedProps4 = workInProgress.elementType === _Component3 ? _unresolvedProps4 : resolveDefaultProps(_Component3, _unresolvedProps4);
+        return mountIncompleteClassComponent(current$$1, workInProgress, _Component3, _resolvedProps4, renderExpirationTime);
+      }
     default:
       invariant(false, 'Unknown unit of work tag. This error is likely caused by a bug in React. Please file an issue.');
   }
@@ -52279,41 +52696,42 @@ function markRef$1(workInProgress) {
   workInProgress.effectTag |= Ref;
 }
 
-function appendAllChildren(parent, workInProgress) {
-  // We only have the top Fiber that was created but we need recurse down its
-  // children to find all the terminal nodes.
-  var node = workInProgress.child;
-  while (node !== null) {
-    if (node.tag === HostComponent || node.tag === HostText) {
-      appendInitialChild(parent, node.stateNode);
-    } else if (node.tag === HostPortal) {
-      // If we have a portal child, then we don't want to traverse
-      // down its children. Instead, we'll get insertions from each child in
-      // the portal directly.
-    } else if (node.child !== null) {
-      node.child.return = node;
-      node = node.child;
-      continue;
-    }
-    if (node === workInProgress) {
-      return;
-    }
-    while (node.sibling === null) {
-      if (node.return === null || node.return === workInProgress) {
-        return;
-      }
-      node = node.return;
-    }
-    node.sibling.return = node.return;
-    node = node.sibling;
-  }
-}
-
+var appendAllChildren = void 0;
 var updateHostContainer = void 0;
 var updateHostComponent$1 = void 0;
 var updateHostText$1 = void 0;
 if (supportsMutation) {
   // Mutation mode
+
+  appendAllChildren = function (parent, workInProgress, needsVisibilityToggle, isHidden) {
+    // We only have the top Fiber that was created but we need recurse down its
+    // children to find all the terminal nodes.
+    var node = workInProgress.child;
+    while (node !== null) {
+      if (node.tag === HostComponent || node.tag === HostText) {
+        appendInitialChild(parent, node.stateNode);
+      } else if (node.tag === HostPortal) {
+        // If we have a portal child, then we don't want to traverse
+        // down its children. Instead, we'll get insertions from each child in
+        // the portal directly.
+      } else if (node.child !== null) {
+        node.child.return = node;
+        node = node.child;
+        continue;
+      }
+      if (node === workInProgress) {
+        return;
+      }
+      while (node.sibling === null) {
+        if (node.return === null || node.return === workInProgress) {
+          return;
+        }
+        node = node.return;
+      }
+      node.sibling.return = node.return;
+      node = node.sibling;
+    }
+  };
 
   updateHostContainer = function (workInProgress) {
     // Noop
@@ -52355,23 +52773,167 @@ if (supportsMutation) {
 } else if (supportsPersistence) {
   // Persistent host tree mode
 
-  // An unfortunate fork of appendAllChildren because we have two different parent types.
-  var appendAllChildrenToContainer = function (containerChildSet, workInProgress) {
+  appendAllChildren = function (parent, workInProgress, needsVisibilityToggle, isHidden) {
     // We only have the top Fiber that was created but we need recurse down its
     // children to find all the terminal nodes.
     var node = workInProgress.child;
     while (node !== null) {
-      if (node.tag === HostComponent || node.tag === HostText) {
-        appendChildToContainerChildSet(containerChildSet, node.stateNode);
+      // eslint-disable-next-line no-labels
+      branches: if (node.tag === HostComponent) {
+        var instance = node.stateNode;
+        if (needsVisibilityToggle) {
+          var props = node.memoizedProps;
+          var type = node.type;
+          if (isHidden) {
+            // This child is inside a timed out tree. Hide it.
+            instance = cloneHiddenInstance(instance, type, props, node);
+          } else {
+            // This child was previously inside a timed out tree. If it was not
+            // updated during this render, it may need to be unhidden. Clone
+            // again to be sure.
+            instance = cloneUnhiddenInstance(instance, type, props, node);
+          }
+          node.stateNode = instance;
+        }
+        appendInitialChild(parent, instance);
+      } else if (node.tag === HostText) {
+        var _instance = node.stateNode;
+        if (needsVisibilityToggle) {
+          var text = node.memoizedProps;
+          var rootContainerInstance = getRootHostContainer();
+          var currentHostContext = getHostContext();
+          if (isHidden) {
+            _instance = createHiddenTextInstance(text, rootContainerInstance, currentHostContext, workInProgress);
+          } else {
+            _instance = createTextInstance(text, rootContainerInstance, currentHostContext, workInProgress);
+          }
+          node.stateNode = _instance;
+        }
+        appendInitialChild(parent, _instance);
       } else if (node.tag === HostPortal) {
         // If we have a portal child, then we don't want to traverse
         // down its children. Instead, we'll get insertions from each child in
         // the portal directly.
+      } else if (node.tag === SuspenseComponent) {
+        var current = node.alternate;
+        if (current !== null) {
+          var oldState = current.memoizedState;
+          var newState = node.memoizedState;
+          var oldIsHidden = oldState !== null && oldState.didTimeout;
+          var newIsHidden = newState !== null && newState.didTimeout;
+          if (oldIsHidden !== newIsHidden) {
+            // The placeholder either just timed out or switched back to the normal
+            // children after having previously timed out. Toggle the visibility of
+            // the direct host children.
+            var primaryChildParent = newIsHidden ? node.child : node;
+            if (primaryChildParent !== null) {
+              appendAllChildren(parent, primaryChildParent, true, newIsHidden);
+            }
+            // eslint-disable-next-line no-labels
+            break branches;
+          }
+        }
+        if (node.child !== null) {
+          // Continue traversing like normal
+          node.child.return = node;
+          node = node.child;
+          continue;
+        }
       } else if (node.child !== null) {
         node.child.return = node;
         node = node.child;
         continue;
       }
+      // $FlowFixMe This is correct but Flow is confused by the labeled break.
+      node = node;
+      if (node === workInProgress) {
+        return;
+      }
+      while (node.sibling === null) {
+        if (node.return === null || node.return === workInProgress) {
+          return;
+        }
+        node = node.return;
+      }
+      node.sibling.return = node.return;
+      node = node.sibling;
+    }
+  };
+
+  // An unfortunate fork of appendAllChildren because we have two different parent types.
+  var appendAllChildrenToContainer = function (containerChildSet, workInProgress, needsVisibilityToggle, isHidden) {
+    // We only have the top Fiber that was created but we need recurse down its
+    // children to find all the terminal nodes.
+    var node = workInProgress.child;
+    while (node !== null) {
+      // eslint-disable-next-line no-labels
+      branches: if (node.tag === HostComponent) {
+        var instance = node.stateNode;
+        if (needsVisibilityToggle) {
+          var props = node.memoizedProps;
+          var type = node.type;
+          if (isHidden) {
+            // This child is inside a timed out tree. Hide it.
+            instance = cloneHiddenInstance(instance, type, props, node);
+          } else {
+            // This child was previously inside a timed out tree. If it was not
+            // updated during this render, it may need to be unhidden. Clone
+            // again to be sure.
+            instance = cloneUnhiddenInstance(instance, type, props, node);
+          }
+          node.stateNode = instance;
+        }
+        appendChildToContainerChildSet(containerChildSet, instance);
+      } else if (node.tag === HostText) {
+        var _instance2 = node.stateNode;
+        if (needsVisibilityToggle) {
+          var text = node.memoizedProps;
+          var rootContainerInstance = getRootHostContainer();
+          var currentHostContext = getHostContext();
+          if (isHidden) {
+            _instance2 = createHiddenTextInstance(text, rootContainerInstance, currentHostContext, workInProgress);
+          } else {
+            _instance2 = createTextInstance(text, rootContainerInstance, currentHostContext, workInProgress);
+          }
+          node.stateNode = _instance2;
+        }
+        appendChildToContainerChildSet(containerChildSet, _instance2);
+      } else if (node.tag === HostPortal) {
+        // If we have a portal child, then we don't want to traverse
+        // down its children. Instead, we'll get insertions from each child in
+        // the portal directly.
+      } else if (node.tag === SuspenseComponent) {
+        var current = node.alternate;
+        if (current !== null) {
+          var oldState = current.memoizedState;
+          var newState = node.memoizedState;
+          var oldIsHidden = oldState !== null && oldState.didTimeout;
+          var newIsHidden = newState !== null && newState.didTimeout;
+          if (oldIsHidden !== newIsHidden) {
+            // The placeholder either just timed out or switched back to the normal
+            // children after having previously timed out. Toggle the visibility of
+            // the direct host children.
+            var primaryChildParent = newIsHidden ? node.child : node;
+            if (primaryChildParent !== null) {
+              appendAllChildrenToContainer(containerChildSet, primaryChildParent, true, newIsHidden);
+            }
+            // eslint-disable-next-line no-labels
+            break branches;
+          }
+        }
+        if (node.child !== null) {
+          // Continue traversing like normal
+          node.child.return = node;
+          node = node.child;
+          continue;
+        }
+      } else if (node.child !== null) {
+        node.child.return = node;
+        node = node.child;
+        continue;
+      }
+      // $FlowFixMe This is correct but Flow is confused by the labeled break.
+      node = node;
       if (node === workInProgress) {
         return;
       }
@@ -52394,7 +52956,7 @@ if (supportsMutation) {
       var container = portalOrRoot.containerInfo;
       var newChildSet = createContainerChildSet(container);
       // If children might have changed, we have to add them all to the set.
-      appendAllChildrenToContainer(newChildSet, workInProgress);
+      appendAllChildrenToContainer(newChildSet, workInProgress, false, false);
       portalOrRoot.pendingChildren = newChildSet;
       // Schedule an update on the container to swap out the container.
       markUpdate(workInProgress);
@@ -52437,7 +52999,7 @@ if (supportsMutation) {
       markUpdate(workInProgress);
     } else {
       // If children might have changed, we have to add them all to the set.
-      appendAllChildren(newInstance, workInProgress);
+      appendAllChildren(newInstance, workInProgress, false, false);
     }
   };
   updateHostText$1 = function (current, workInProgress, oldText, newText) {
@@ -52468,21 +53030,17 @@ function completeWork(current, workInProgress, renderExpirationTime) {
   var newProps = workInProgress.pendingProps;
 
   switch (workInProgress.tag) {
-    case FunctionalComponent:
-    case FunctionalComponentLazy:
+    case IndeterminateComponent:
+      break;
+    case LazyComponent:
+      break;
+    case SimpleMemoComponent:
+    case FunctionComponent:
       break;
     case ClassComponent:
       {
         var Component = workInProgress.type;
         if (isContextProvider(Component)) {
-          popContext(workInProgress);
-        }
-        break;
-      }
-    case ClassComponentLazy:
-      {
-        var _Component = getResultFromResolvedThenable(workInProgress.type);
-        if (isContextProvider(_Component)) {
           popContext(workInProgress);
         }
         break;
@@ -52542,7 +53100,7 @@ function completeWork(current, workInProgress, renderExpirationTime) {
           } else {
             var instance = createInstance(type, newProps, rootContainerInstance, currentHostContext, workInProgress);
 
-            appendAllChildren(instance, workInProgress);
+            appendAllChildren(instance, workInProgress, false, false);
 
             // Certain renderers require commit-time effects for initial mount.
             // (eg DOM renderer supports auto-focus for certain elements).
@@ -52587,10 +53145,20 @@ function completeWork(current, workInProgress, renderExpirationTime) {
         break;
       }
     case ForwardRef:
-    case ForwardRefLazy:
       break;
-    case PlaceholderComponent:
-      break;
+    case SuspenseComponent:
+      {
+        var nextState = workInProgress.memoizedState;
+        var prevState = current !== null ? current.memoizedState : null;
+        var nextDidTimeout = nextState !== null && nextState.didTimeout;
+        var prevDidTimeout = prevState !== null && prevState.didTimeout;
+        if (nextDidTimeout !== prevDidTimeout) {
+          // If this render commits, and it switches between the normal state
+          // and the timed-out state, schedule an effect.
+          workInProgress.effectTag |= Update;
+        }
+        break;
+      }
     case Fragment:
       break;
     case Mode:
@@ -52607,15 +53175,34 @@ function completeWork(current, workInProgress, renderExpirationTime) {
       break;
     case ContextConsumer:
       break;
-    // Error cases
-    case IndeterminateComponent:
-      invariant(false, 'An indeterminate component should have become determinate before completing. This error is likely caused by a bug in React. Please file an issue.');
-    // eslint-disable-next-line no-fallthrough
+    case MemoComponent:
+      break;
+    case IncompleteClassComponent:
+      {
+        // Same as class component case. I put it down here so that the tags are
+        // sequential to ensure this switch is compiled to a jump table.
+        var _Component = workInProgress.type;
+        if (isContextProvider(_Component)) {
+          popContext(workInProgress);
+        }
+        break;
+      }
     default:
       invariant(false, 'Unknown unit of work tag. This error is likely caused by a bug in React. Please file an issue.');
   }
 
   return null;
+}
+
+function shouldCaptureSuspense(current, workInProgress) {
+  // In order to capture, the Suspense component must have a fallback prop.
+  if (workInProgress.memoizedProps.fallback === undefined) {
+    return false;
+  }
+  // If it was the primary children that just suspended, capture and render the
+  // fallback. Otherwise, don't capture and bubble to the next boundary.
+  var nextState = workInProgress.memoizedState;
+  return nextState === null || !nextState.didTimeout;
 }
 
 // This module is forked in different environments.
@@ -52684,8 +53271,6 @@ function logCapturedError(capturedError) {
     console.error(combinedMessage);
   }
 }
-
-var emptyObject = {};
 
 var didWarnAboutUndefinedSnapshotBeforeUpdate = null;
 {
@@ -52768,7 +53353,6 @@ function safelyDetachRef(current$$1) {
 function commitBeforeMutationLifeCycles(current$$1, finishedWork) {
   switch (finishedWork.tag) {
     case ClassComponent:
-    case ClassComponentLazy:
       {
         if (finishedWork.effectTag & Snapshot) {
           if (current$$1 !== null) {
@@ -52796,6 +53380,7 @@ function commitBeforeMutationLifeCycles(current$$1, finishedWork) {
     case HostComponent:
     case HostText:
     case HostPortal:
+    case IncompleteClassComponent:
       // Nothing to do for these component types
       return;
     default:
@@ -52808,7 +53393,6 @@ function commitBeforeMutationLifeCycles(current$$1, finishedWork) {
 function commitLifeCycles(finishedRoot, current$$1, finishedWork, committedExpirationTime) {
   switch (finishedWork.tag) {
     case ClassComponent:
-    case ClassComponentLazy:
       {
         var instance = finishedWork.stateNode;
         if (finishedWork.effectTag & Update) {
@@ -52847,7 +53431,6 @@ function commitLifeCycles(finishedRoot, current$$1, finishedWork, committedExpir
                 _instance = getPublicInstance(finishedWork.child.stateNode);
                 break;
               case ClassComponent:
-              case ClassComponentLazy:
                 _instance = finishedWork.child.stateNode;
                 break;
             }
@@ -52895,30 +53478,93 @@ function commitLifeCycles(finishedRoot, current$$1, finishedWork, committedExpir
         }
         return;
       }
-    case PlaceholderComponent:
+    case SuspenseComponent:
       {
-        if (enableSuspense) {
-          if ((finishedWork.mode & StrictMode) === NoEffect) {
-            // In loose mode, a placeholder times out by scheduling a synchronous
-            // update in the commit phase. Use `updateQueue` field to signal that
-            // the Timeout needs to switch to the placeholder. We don't need an
-            // entire queue. Any non-null value works.
-            // $FlowFixMe - Intentionally using a value other than an UpdateQueue.
-            finishedWork.updateQueue = emptyObject;
-            scheduleWork(finishedWork, Sync);
-          } else {
-            // In strict mode, the Update effect is used to record the time at
-            // which the placeholder timed out.
-            var currentTime = requestCurrentTime();
-            finishedWork.stateNode = { timedOutAt: currentTime };
+        if (finishedWork.effectTag & Callback) {
+          // In non-strict mode, a suspense boundary times out by commiting
+          // twice: first, by committing the children in an inconsistent state,
+          // then hiding them and showing the fallback children in a subsequent
+          var _newState = {
+            alreadyCaptured: true,
+            didTimeout: false,
+            timedOutAt: NoWork
+          };
+          finishedWork.memoizedState = _newState;
+          scheduleWork(finishedWork, Sync);
+          return;
+        }
+        var oldState = current$$1 !== null ? current$$1.memoizedState : null;
+        var newState = finishedWork.memoizedState;
+        var oldDidTimeout = oldState !== null ? oldState.didTimeout : false;
+
+        var newDidTimeout = void 0;
+        var primaryChildParent = finishedWork;
+        if (newState === null) {
+          newDidTimeout = false;
+        } else {
+          newDidTimeout = newState.didTimeout;
+          if (newDidTimeout) {
+            primaryChildParent = finishedWork.child;
+            newState.alreadyCaptured = false;
+            if (newState.timedOutAt === NoWork) {
+              // If the children had not already timed out, record the time.
+              // This is used to compute the elapsed time during subsequent
+              // attempts to render the children.
+              newState.timedOutAt = requestCurrentTime();
+            }
           }
+        }
+
+        if (newDidTimeout !== oldDidTimeout && primaryChildParent !== null) {
+          hideOrUnhideAllChildren(primaryChildParent, newDidTimeout);
         }
         return;
       }
+    case IncompleteClassComponent:
+      break;
     default:
       {
         invariant(false, 'This unit of work tag should not have side-effects. This error is likely caused by a bug in React. Please file an issue.');
       }
+  }
+}
+
+function hideOrUnhideAllChildren(finishedWork, isHidden) {
+  if (supportsMutation) {
+    // We only have the top Fiber that was inserted but we need recurse down its
+    var node = finishedWork;
+    while (true) {
+      if (node.tag === HostComponent) {
+        var instance = node.stateNode;
+        if (isHidden) {
+          hideInstance(instance);
+        } else {
+          unhideInstance(node.stateNode, node.memoizedProps);
+        }
+      } else if (node.tag === HostText) {
+        var _instance3 = node.stateNode;
+        if (isHidden) {
+          hideTextInstance(_instance3);
+        } else {
+          unhideTextInstance(_instance3, node.memoizedProps);
+        }
+      } else if (node.child !== null) {
+        node.child.return = node;
+        node = node.child;
+        continue;
+      }
+      if (node === finishedWork) {
+        return;
+      }
+      while (node.sibling === null) {
+        if (node.return === null || node.return === finishedWork) {
+          return;
+        }
+        node = node.return;
+      }
+      node.sibling.return = node.return;
+      node = node.sibling;
+    }
   }
 }
 
@@ -52967,7 +53613,6 @@ function commitUnmount(current$$1) {
 
   switch (current$$1.tag) {
     case ClassComponent:
-    case ClassComponentLazy:
       {
         safelyDetachRef(current$$1);
         var instance = current$$1.stateNode;
@@ -53061,7 +53706,6 @@ function commitContainer(finishedWork) {
 
   switch (finishedWork.tag) {
     case ClassComponent:
-    case ClassComponentLazy:
       {
         return;
       }
@@ -53328,7 +53972,6 @@ function commitWork(current$$1, finishedWork) {
 
   switch (finishedWork.tag) {
     case ClassComponent:
-    case ClassComponentLazy:
       {
         return;
       }
@@ -53372,7 +54015,11 @@ function commitWork(current$$1, finishedWork) {
       {
         return;
       }
-    case PlaceholderComponent:
+    case SuspenseComponent:
+      {
+        return;
+      }
+    case IncompleteClassComponent:
       {
         return;
       }
@@ -53388,10 +54035,6 @@ function commitResetTextContent(current$$1) {
     return;
   }
   resetTextContent(current$$1.stateNode);
-}
-
-function NoopComponent() {
-  return null;
 }
 
 function createRootErrorUpdate(fiber, errorInfo, expirationTime) {
@@ -53412,22 +54055,22 @@ function createRootErrorUpdate(fiber, errorInfo, expirationTime) {
 function createClassErrorUpdate(fiber, errorInfo, expirationTime) {
   var update = createUpdate(expirationTime);
   update.tag = CaptureUpdate;
-  var getDerivedStateFromCatch = fiber.type.getDerivedStateFromCatch;
-  if (enableGetDerivedStateFromCatch && typeof getDerivedStateFromCatch === 'function') {
+  var getDerivedStateFromError = fiber.type.getDerivedStateFromError;
+  if (typeof getDerivedStateFromError === 'function') {
     var error = errorInfo.value;
     update.payload = function () {
-      return getDerivedStateFromCatch(error);
+      return getDerivedStateFromError(error);
     };
   }
 
   var inst = fiber.stateNode;
   if (inst !== null && typeof inst.componentDidCatch === 'function') {
     update.callback = function callback() {
-      if (!enableGetDerivedStateFromCatch || getDerivedStateFromCatch !== 'function') {
+      if (typeof getDerivedStateFromError !== 'function') {
         // To preserve the preexisting retry behavior of error boundaries,
         // we keep track of which ones already failed during this batch.
         // This gets reset before we yield back to the browser.
-        // TODO: Warn in strict mode if getDerivedStateFromCatch is
+        // TODO: Warn in strict mode if getDerivedStateFromError is
         // not defined.
         markLegacyErrorBoundaryAsFailed(this);
       }
@@ -53437,6 +54080,14 @@ function createClassErrorUpdate(fiber, errorInfo, expirationTime) {
       this.componentDidCatch(error, {
         componentStack: stack !== null ? stack : ''
       });
+      {
+        if (typeof getDerivedStateFromError !== 'function') {
+          // If componentDidCatch is the only error boundary method defined,
+          // then it needs to call setState to recover from errors.
+          // If no state update is scheduled then the boundary will swallow the error.
+          !(fiber.expirationTime === Sync) ? warningWithoutStack$1(false, '%s: Error boundaries should implement getDerivedStateFromError(). ' + 'In that method, return a state update to display an error message or fallback UI.', getComponentName(fiber.type) || 'Unknown') : void 0;
+        }
+      }
     };
   }
   return update;
@@ -53448,7 +54099,7 @@ function throwException(root, returnFiber, sourceFiber, value, renderExpirationT
   // Its effect list is no longer valid.
   sourceFiber.firstEffect = sourceFiber.lastEffect = null;
 
-  if (enableSuspense && value !== null && typeof value === 'object' && typeof value.then === 'function') {
+  if (value !== null && typeof value === 'object' && typeof value.then === 'function') {
     // This is a thenable.
     var thenable = value;
 
@@ -53461,21 +54112,20 @@ function throwException(root, returnFiber, sourceFiber, value, renderExpirationT
     var earliestTimeoutMs = -1;
     var startTimeMs = -1;
     do {
-      if (_workInProgress.tag === PlaceholderComponent) {
+      if (_workInProgress.tag === SuspenseComponent) {
         var current = _workInProgress.alternate;
-        if (current !== null && current.memoizedState === true && current.stateNode !== null) {
-          // Reached a placeholder that already timed out. Each timed out
-          // placeholder acts as the root of a new suspense boundary.
-
-          // Use the time at which the placeholder timed out as the start time
-          // for the current render.
-          var timedOutAt = current.stateNode.timedOutAt;
-          startTimeMs = expirationTimeToMs(timedOutAt);
-
-          // Do not search any further.
-          break;
+        if (current !== null) {
+          var currentState = current.memoizedState;
+          if (currentState !== null && currentState.didTimeout) {
+            // Reached a boundary that already timed out. Do not search
+            // any further.
+            var timedOutAt = currentState.timedOutAt;
+            startTimeMs = expirationTimeToMs(timedOutAt);
+            // Do not search any further.
+            break;
+          }
         }
-        var timeoutPropMs = _workInProgress.pendingProps.delayMs;
+        var timeoutPropMs = _workInProgress.pendingProps.maxDuration;
         if (typeof timeoutPropMs === 'number') {
           if (timeoutPropMs <= 0) {
             earliestTimeoutMs = 0;
@@ -53487,103 +54137,96 @@ function throwException(root, returnFiber, sourceFiber, value, renderExpirationT
       _workInProgress = _workInProgress.return;
     } while (_workInProgress !== null);
 
-    // Schedule the nearest Placeholder to re-render the timed out view.
+    // Schedule the nearest Suspense to re-render the timed out view.
     _workInProgress = returnFiber;
     do {
-      if (_workInProgress.tag === PlaceholderComponent) {
-        var didTimeout = _workInProgress.memoizedState;
-        if (!didTimeout) {
-          // Found the nearest boundary.
+      if (_workInProgress.tag === SuspenseComponent && shouldCaptureSuspense(_workInProgress.alternate, _workInProgress)) {
+        // Found the nearest boundary.
 
-          // If the boundary is not in async mode, we should not suspend, and
-          // likewise, when the promise resolves, we should ping synchronously.
-          var pingTime = (_workInProgress.mode & AsyncMode) === NoEffect ? Sync : renderExpirationTime;
+        // If the boundary is not in concurrent mode, we should not suspend, and
+        // likewise, when the promise resolves, we should ping synchronously.
+        var pingTime = (_workInProgress.mode & ConcurrentMode) === NoEffect ? Sync : renderExpirationTime;
 
-          // Attach a listener to the promise to "ping" the root and retry.
-          var onResolveOrReject = retrySuspendedRoot.bind(null, root, _workInProgress, pingTime);
-          thenable.then(onResolveOrReject, onResolveOrReject);
+        // Attach a listener to the promise to "ping" the root and retry.
+        var onResolveOrReject = retrySuspendedRoot.bind(null, root, _workInProgress, sourceFiber, pingTime);
+        if (enableSchedulerTracing) {
+          onResolveOrReject = tracing.unstable_wrap(onResolveOrReject);
+        }
+        thenable.then(onResolveOrReject, onResolveOrReject);
 
-          // If the boundary is outside of strict mode, we should *not* suspend
-          // the commit. Pretend as if the suspended component rendered null and
-          // keep rendering. In the commit phase, we'll schedule a subsequent
-          // synchronous update to re-render the Placeholder.
-          //
-          // Note: It doesn't matter whether the component that suspended was
-          // inside a strict mode tree. If the Placeholder is outside of it, we
-          // should *not* suspend the commit.
-          if ((_workInProgress.mode & StrictMode) === NoEffect) {
-            _workInProgress.effectTag |= Update;
+        // If the boundary is outside of concurrent mode, we should *not*
+        // suspend the commit. Pretend as if the suspended component rendered
+        // null and keep rendering. In the commit phase, we'll schedule a
+        // subsequent synchronous update to re-render the Suspense.
+        //
+        // Note: It doesn't matter whether the component that suspended was
+        // inside a concurrent mode tree. If the Suspense is outside of it, we
+        // should *not* suspend the commit.
+        if ((_workInProgress.mode & ConcurrentMode) === NoEffect) {
+          _workInProgress.effectTag |= Callback;
 
-            // Unmount the source fiber's children
-            var nextChildren = null;
-            reconcileChildren(sourceFiber.alternate, sourceFiber, nextChildren, renderExpirationTime);
-            sourceFiber.effectTag &= ~Incomplete;
-            if (sourceFiber.tag === IndeterminateComponent) {
-              // Let's just assume it's a functional component. This fiber will
-              // be unmounted in the immediate next commit, anyway.
-              sourceFiber.tag = FunctionalComponent;
+          // Unmount the source fiber's children
+          var nextChildren = null;
+          reconcileChildren(sourceFiber.alternate, sourceFiber, nextChildren, renderExpirationTime);
+          sourceFiber.effectTag &= ~Incomplete;
+
+          if (sourceFiber.tag === ClassComponent) {
+            // We're going to commit this fiber even though it didn't complete.
+            // But we shouldn't call any lifecycle methods or callbacks. Remove
+            // all lifecycle effect tags.
+            sourceFiber.effectTag &= ~LifecycleEffectMask;
+            var _current = sourceFiber.alternate;
+            if (_current === null) {
+              // This is a new mount. Change the tag so it's not mistaken for a
+              // completed component. For example, we should not call
+              // componentWillUnmount if it is deleted.
+              sourceFiber.tag = IncompleteClassComponent;
             }
-
-            if (sourceFiber.tag === ClassComponent || sourceFiber.tag === ClassComponentLazy) {
-              // We're going to commit this fiber even though it didn't
-              // complete. But we shouldn't call any lifecycle methods or
-              // callbacks. Remove all lifecycle effect tags.
-              sourceFiber.effectTag &= ~LifecycleEffectMask;
-              if (sourceFiber.alternate === null) {
-                // We're about to mount a class component that doesn't have an
-                // instance. Turn this into a dummy functional component instead,
-                // to prevent type errors. This is a bit weird but it's an edge
-                // case and we're about to synchronously delete this
-                // component, anyway.
-                sourceFiber.tag = FunctionalComponent;
-                sourceFiber.type = NoopComponent;
-              }
-            }
-
-            // Exit without suspending.
-            return;
           }
 
-          // Confirmed that the boundary is in a strict mode tree. Continue with
-          // the normal suspend path.
-
-          var absoluteTimeoutMs = void 0;
-          if (earliestTimeoutMs === -1) {
-            // If no explicit threshold is given, default to an abitrarily large
-            // value. The actual size doesn't matter because the threshold for the
-            // whole tree will be clamped to the expiration time.
-            absoluteTimeoutMs = maxSigned31BitInt;
-          } else {
-            if (startTimeMs === -1) {
-              // This suspend happened outside of any already timed-out
-              // placeholders. We don't know exactly when the update was scheduled,
-              // but we can infer an approximate start time from the expiration
-              // time. First, find the earliest uncommitted expiration time in the
-              // tree, including work that is suspended. Then subtract the offset
-              // used to compute an async update's expiration time. This will cause
-              // high priority (interactive) work to expire earlier than necessary,
-              // but we can account for this by adjusting for the Just Noticeable
-              // Difference.
-              var earliestExpirationTime = findEarliestOutstandingPriorityLevel(root, renderExpirationTime);
-              var earliestExpirationTimeMs = expirationTimeToMs(earliestExpirationTime);
-              startTimeMs = earliestExpirationTimeMs - LOW_PRIORITY_EXPIRATION;
-            }
-            absoluteTimeoutMs = startTimeMs + earliestTimeoutMs;
-          }
-
-          // Mark the earliest timeout in the suspended fiber's ancestor path.
-          // After completing the root, we'll take the largest of all the
-          // suspended fiber's timeouts and use it to compute a timeout for the
-          // whole tree.
-          renderDidSuspend(root, absoluteTimeoutMs, renderExpirationTime);
-
-          _workInProgress.effectTag |= ShouldCapture;
-          _workInProgress.expirationTime = renderExpirationTime;
+          // Exit without suspending.
           return;
         }
-        // This boundary already captured during this render. Continue to the
-        // next boundary.
+
+        // Confirmed that the boundary is in a concurrent mode tree. Continue
+        // with the normal suspend path.
+
+        var absoluteTimeoutMs = void 0;
+        if (earliestTimeoutMs === -1) {
+          // If no explicit threshold is given, default to an abitrarily large
+          // value. The actual size doesn't matter because the threshold for the
+          // whole tree will be clamped to the expiration time.
+          absoluteTimeoutMs = maxSigned31BitInt;
+        } else {
+          if (startTimeMs === -1) {
+            // This suspend happened outside of any already timed-out
+            // placeholders. We don't know exactly when the update was
+            // scheduled, but we can infer an approximate start time from the
+            // expiration time. First, find the earliest uncommitted expiration
+            // time in the tree, including work that is suspended. Then subtract
+            // the offset used to compute an async update's expiration time.
+            // This will cause high priority (interactive) work to expire
+            // earlier than necessary, but we can account for this by adjusting
+            // for the Just Noticeable Difference.
+            var earliestExpirationTime = findEarliestOutstandingPriorityLevel(root, renderExpirationTime);
+            var earliestExpirationTimeMs = expirationTimeToMs(earliestExpirationTime);
+            startTimeMs = earliestExpirationTimeMs - LOW_PRIORITY_EXPIRATION;
+          }
+          absoluteTimeoutMs = startTimeMs + earliestTimeoutMs;
+        }
+
+        // Mark the earliest timeout in the suspended fiber's ancestor path.
+        // After completing the root, we'll take the largest of all the
+        // suspended fiber's timeouts and use it to compute a timeout for the
+        // whole tree.
+        renderDidSuspend(root, absoluteTimeoutMs, renderExpirationTime);
+
+        _workInProgress.effectTag |= ShouldCapture;
+        _workInProgress.expirationTime = renderExpirationTime;
+        return;
       }
+      // This boundary already captured during this render. Continue to the next
+      // boundary.
       _workInProgress = _workInProgress.return;
     } while (_workInProgress !== null);
     // No boundary was found. Fallthrough to error mode.
@@ -53608,12 +54251,11 @@ function throwException(root, returnFiber, sourceFiber, value, renderExpirationT
           return;
         }
       case ClassComponent:
-      case ClassComponentLazy:
         // Capture and retry
         var errorInfo = value;
         var ctor = workInProgress.type;
         var instance = workInProgress.stateNode;
-        if ((workInProgress.effectTag & DidCapture) === NoEffect && (typeof ctor.getDerivedStateFromCatch === 'function' && enableGetDerivedStateFromCatch || instance !== null && typeof instance.componentDidCatch === 'function' && !isAlreadyFailedLegacyErrorBoundary(instance))) {
+        if ((workInProgress.effectTag & DidCapture) === NoEffect && (typeof ctor.getDerivedStateFromError === 'function' || instance !== null && typeof instance.componentDidCatch === 'function' && !isAlreadyFailedLegacyErrorBoundary(instance))) {
           workInProgress.effectTag |= ShouldCapture;
           workInProgress.expirationTime = renderExpirationTime;
           // Schedule the error boundary to re-render using updated state
@@ -53644,26 +54286,13 @@ function unwindWork(workInProgress, renderExpirationTime) {
         }
         return null;
       }
-    case ClassComponentLazy:
-      {
-        var _Component = workInProgress.type._reactResult;
-        if (isContextProvider(_Component)) {
-          popContext(workInProgress);
-        }
-        var _effectTag = workInProgress.effectTag;
-        if (_effectTag & ShouldCapture) {
-          workInProgress.effectTag = _effectTag & ~ShouldCapture | DidCapture;
-          return workInProgress;
-        }
-        return null;
-      }
     case HostRoot:
       {
         popHostContainer(workInProgress);
         popTopLevelContextObject(workInProgress);
-        var _effectTag2 = workInProgress.effectTag;
-        !((_effectTag2 & DidCapture) === NoEffect) ? invariant(false, 'The root failed to unmount after an error. This is likely a bug in React. Please file an issue.') : void 0;
-        workInProgress.effectTag = _effectTag2 & ~ShouldCapture | DidCapture;
+        var _effectTag = workInProgress.effectTag;
+        !((_effectTag & DidCapture) === NoEffect) ? invariant(false, 'The root failed to unmount after an error. This is likely a bug in React. Please file an issue.') : void 0;
+        workInProgress.effectTag = _effectTag & ~ShouldCapture | DidCapture;
         return workInProgress;
       }
     case HostComponent:
@@ -53671,11 +54300,37 @@ function unwindWork(workInProgress, renderExpirationTime) {
         popHostContext(workInProgress);
         return null;
       }
-    case PlaceholderComponent:
+    case SuspenseComponent:
       {
-        var _effectTag3 = workInProgress.effectTag;
-        if (_effectTag3 & ShouldCapture) {
-          workInProgress.effectTag = _effectTag3 & ~ShouldCapture | DidCapture;
+        var _effectTag2 = workInProgress.effectTag;
+        if (_effectTag2 & ShouldCapture) {
+          workInProgress.effectTag = _effectTag2 & ~ShouldCapture | DidCapture;
+          // Captured a suspense effect. Set the boundary's `alreadyCaptured`
+          // state to true so we know to render the fallback.
+          var current = workInProgress.alternate;
+          var currentState = current !== null ? current.memoizedState : null;
+          var nextState = workInProgress.memoizedState;
+          if (nextState === null) {
+            // No existing state. Create a new object.
+            nextState = {
+              alreadyCaptured: true,
+              didTimeout: false,
+              timedOutAt: NoWork
+            };
+          } else if (currentState === nextState) {
+            // There is an existing state but it's the same as the current tree's.
+            // Clone the object.
+            nextState = {
+              alreadyCaptured: true,
+              didTimeout: nextState.didTimeout,
+              timedOutAt: nextState.timedOutAt
+            };
+          } else {
+            // Already have a clone, so it's safe to mutate.
+            nextState.alreadyCaptured = true;
+          }
+          workInProgress.memoizedState = nextState;
+          // Re-render the boundary.
           return workInProgress;
         }
         return null;
@@ -53697,14 +54352,6 @@ function unwindInterruptedWork(interruptedWork) {
       {
         var childContextTypes = interruptedWork.type.childContextTypes;
         if (childContextTypes !== null && childContextTypes !== undefined) {
-          popContext(interruptedWork);
-        }
-        break;
-      }
-    case ClassComponentLazy:
-      {
-        var _childContextTypes = interruptedWork.type._reactResult.childContextTypes;
-        if (_childContextTypes !== null && _childContextTypes !== undefined) {
           popContext(interruptedWork);
         }
         break;
@@ -53813,10 +54460,6 @@ var legacyErrorBoundariesThatAlreadyFailed = null;
 // Used for performance tracking.
 var interruptedBy = null;
 
-// Do not decrement interaction counts in the event of suspense timeouts.
-// This would lead to prematurely calling the interaction-complete hook.
-var suspenseDidTimeout = false;
-
 var stashedWorkInProgressProperties = void 0;
 var replayUnitOfWork = void 0;
 var isReplayingFailedUnitOfWork = void 0;
@@ -53854,14 +54497,6 @@ if (true && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
         {
           var Component = failedUnitOfWork.type;
           if (isContextProvider(Component)) {
-            popContext(failedUnitOfWork);
-          }
-          break;
-        }
-      case ClassComponentLazy:
-        {
-          var _Component = getResultFromResolvedThenable(failedUnitOfWork.type);
-          if (isContextProvider(_Component)) {
             popContext(failedUnitOfWork);
           }
           break;
@@ -54021,13 +54656,10 @@ function commitBeforeMutationLifecycles() {
 function commitAllLifeCycles(finishedRoot, committedExpirationTime) {
   {
     ReactStrictModeWarnings.flushPendingUnsafeLifecycleWarnings();
+    ReactStrictModeWarnings.flushLegacyContextWarning();
 
     if (warnAboutDeprecatedLifecycles) {
       ReactStrictModeWarnings.flushPendingDeprecationWarnings();
-    }
-
-    if (warnAboutLegacyContextAPI) {
-      ReactStrictModeWarnings.flushLegacyContextWarning();
     }
   }
   while (nextEffect !== null) {
@@ -54087,27 +54719,11 @@ function commitRoot(root, finishedWork) {
   markCommittedPriorityLevels(root, earliestRemainingTimeBeforeCommit);
 
   var prevInteractions = null;
-  var committedInteractions = enableSchedulerTracing ? [] : null;
   if (enableSchedulerTracing) {
     // Restore any pending interactions at this point,
     // So that cascading work triggered during the render phase will be accounted for.
     prevInteractions = tracing.__interactionsRef.current;
     tracing.__interactionsRef.current = root.memoizedInteractions;
-
-    // We are potentially finished with the current batch of interactions.
-    // So we should clear them out of the pending interaction map.
-    // We do this at the start of commit in case cascading work is scheduled by commit phase lifecycles.
-    // In that event, interaction data may be added back into the pending map for a future commit.
-    // We also store the interactions we are about to commit so that we can notify subscribers after we're done.
-    // These are stored as an Array rather than a Set,
-    // Because the same interaction may be pending for multiple expiration times,
-    // In which case it's important that we decrement the count the right number of times after finishing.
-    root.pendingInteractionMap.forEach(function (scheduledInteractions, scheduledExpirationTime) {
-      if (scheduledExpirationTime <= committedExpirationTime) {
-        committedInteractions.push.apply(committedInteractions, Array.from(scheduledInteractions));
-        root.pendingInteractionMap.delete(scheduledExpirationTime);
-      }
-    });
   }
 
   // Reset this to null before calling lifecycles
@@ -54259,28 +54875,35 @@ function commitRoot(root, finishedWork) {
         unhandledError = error;
       }
     } finally {
-      // Don't update interaction counts if we're frozen due to suspense.
-      // In this case, we can skip the completed-work check entirely.
-      if (!suspenseDidTimeout) {
-        // Now that we're done, check the completed batch of interactions.
-        // If no more work is outstanding for a given interaction,
-        // We need to notify the subscribers that it's finished.
-        committedInteractions.forEach(function (interaction) {
-          interaction.__count--;
-          if (subscriber !== null && interaction.__count === 0) {
-            try {
-              subscriber.onInteractionScheduledWorkCompleted(interaction);
-            } catch (error) {
-              // It's not safe for commitRoot() to throw.
-              // Store the error for now and we'll re-throw in finishRendering().
-              if (!hasUnhandledError) {
-                hasUnhandledError = true;
-                unhandledError = error;
+      // Clear completed interactions from the pending Map.
+      // Unless the render was suspended or cascading work was scheduled,
+      // In which case– leave pending interactions until the subsequent render.
+      var pendingInteractionMap = root.pendingInteractionMap;
+      pendingInteractionMap.forEach(function (scheduledInteractions, scheduledExpirationTime) {
+        // Only decrement the pending interaction count if we're done.
+        // If there's still work at the current priority,
+        // That indicates that we are waiting for suspense data.
+        if (earliestRemainingTimeAfterCommit === NoWork || scheduledExpirationTime < earliestRemainingTimeAfterCommit) {
+          pendingInteractionMap.delete(scheduledExpirationTime);
+
+          scheduledInteractions.forEach(function (interaction) {
+            interaction.__count--;
+
+            if (subscriber !== null && interaction.__count === 0) {
+              try {
+                subscriber.onInteractionScheduledWorkCompleted(interaction);
+              } catch (error) {
+                // It's not safe for commitRoot() to throw.
+                // Store the error for now and we'll re-throw in finishRendering().
+                if (!hasUnhandledError) {
+                  hasUnhandledError = true;
+                  unhandledError = error;
+                }
               }
             }
-          }
-        });
-      }
+          });
+        }
+      });
     }
   }
 }
@@ -54379,21 +55002,10 @@ function completeUnitOfWork(workInProgress) {
       } else {
         nextUnitOfWork = completeWork(current$$1, workInProgress, nextRenderExpirationTime);
       }
-      var next = nextUnitOfWork;
       stopWorkTimer(workInProgress);
       resetChildExpirationTime(workInProgress, nextRenderExpirationTime);
       {
         resetCurrentFiber();
-      }
-
-      if (next !== null) {
-        stopWorkTimer(workInProgress);
-        if (true && ReactFiberInstrumentation_1.debugTool) {
-          ReactFiberInstrumentation_1.debugTool.onCompleteWork(workInProgress);
-        }
-        // If completing this work spawned new work, do that next. We'll come
-        // back here again.
-        return next;
       }
 
       if (returnFiber !== null &&
@@ -54455,7 +55067,7 @@ function completeUnitOfWork(workInProgress) {
       // This fiber did not complete because something threw. Pop values off
       // the stack without entering the complete phase. If this is a boundary,
       // capture values if possible.
-      var _next = unwindWork(workInProgress, nextRenderExpirationTime);
+      var next = unwindWork(workInProgress, nextRenderExpirationTime);
       // Because this fiber did not complete, don't reset its expiration time.
       if (workInProgress.effectTag & DidCapture) {
         // Restarting an error boundary
@@ -54468,7 +55080,7 @@ function completeUnitOfWork(workInProgress) {
         resetCurrentFiber();
       }
 
-      if (_next !== null) {
+      if (next !== null) {
         stopWorkTimer(workInProgress);
         if (true && ReactFiberInstrumentation_1.debugTool) {
           ReactFiberInstrumentation_1.debugTool.onCompleteWork(workInProgress);
@@ -54476,14 +55088,14 @@ function completeUnitOfWork(workInProgress) {
 
         if (enableProfilerTimer) {
           // Include the time spent working on failed children before continuing.
-          if (_next.mode & ProfileMode) {
-            var actualDuration = _next.actualDuration;
-            var child = _next.child;
+          if (next.mode & ProfileMode) {
+            var actualDuration = next.actualDuration;
+            var child = next.child;
             while (child !== null) {
               actualDuration += child.actualDuration;
               child = child.sibling;
             }
-            _next.actualDuration = actualDuration;
+            next.actualDuration = actualDuration;
           }
         }
 
@@ -54491,8 +55103,8 @@ function completeUnitOfWork(workInProgress) {
         // back here again.
         // Since we're restarting, remove anything that is not a host effect
         // from the effect tag.
-        _next.effectTag &= HostEffectMask;
-        return _next;
+        next.effectTag &= HostEffectMask;
+        return next;
       }
 
       if (returnFiber !== null) {
@@ -54548,6 +55160,7 @@ function performUnitOfWork(workInProgress) {
     }
 
     next = beginWork(current$$1, workInProgress, nextRenderExpirationTime);
+    workInProgress.memoizedProps = workInProgress.pendingProps;
 
     if (workInProgress.mode & ProfileMode) {
       // Record the render duration assuming we didn't bailout (or error).
@@ -54555,6 +55168,7 @@ function performUnitOfWork(workInProgress) {
     }
   } else {
     next = beginWork(current$$1, workInProgress, nextRenderExpirationTime);
+    workInProgress.memoizedProps = workInProgress.pendingProps;
   }
 
   {
@@ -54602,14 +55216,6 @@ function renderRoot(root, isYieldy, isExpired) {
 
   var expirationTime = root.nextExpirationTimeToWorkOn;
 
-  var prevInteractions = null;
-  if (enableSchedulerTracing) {
-    // We're about to start new traced work.
-    // Restore pending interactions so cascading work triggered during the render phase will be accounted for.
-    prevInteractions = tracing.__interactionsRef.current;
-    tracing.__interactionsRef.current = root.memoizedInteractions;
-  }
-
   // Check if we're starting from a fresh stack, or if we're resuming from
   // previously yielded work.
   if (expirationTime !== nextRenderExpirationTime || root !== nextRoot || nextUnitOfWork === null) {
@@ -54656,6 +55262,14 @@ function renderRoot(root, isYieldy, isExpired) {
         }
       }
     }
+  }
+
+  var prevInteractions = null;
+  if (enableSchedulerTracing) {
+    // We're about to start new traced work.
+    // Restore pending interactions so cascading work triggered during the render phase will be accounted for.
+    prevInteractions = tracing.__interactionsRef.current;
+    tracing.__interactionsRef.current = root.memoizedInteractions;
   }
 
   var didFatal = false;
@@ -54788,7 +55402,7 @@ function renderRoot(root, isYieldy, isExpired) {
     }
   }
 
-  if (enableSuspense && !isExpired && nextLatestAbsoluteTimeoutMs !== -1) {
+  if (!isExpired && nextLatestAbsoluteTimeoutMs !== -1) {
     // The tree was suspended.
     var _suspendedExpirationTime2 = expirationTime;
     markSuspendedPriorityLevel(root, _suspendedExpirationTime2);
@@ -54828,10 +55442,9 @@ function dispatch(sourceFiber, value, expirationTime) {
   while (fiber !== null) {
     switch (fiber.tag) {
       case ClassComponent:
-      case ClassComponentLazy:
         var ctor = fiber.type;
         var instance = fiber.stateNode;
-        if (typeof ctor.getDerivedStateFromCatch === 'function' || typeof instance.componentDidCatch === 'function' && !isAlreadyFailedLegacyErrorBoundary(instance)) {
+        if (typeof ctor.getDerivedStateFromError === 'function' || typeof instance.componentDidCatch === 'function' && !isAlreadyFailedLegacyErrorBoundary(instance)) {
           var errorInfo = createCapturedValue(value, sourceFiber);
           var update = createClassErrorUpdate(fiber, errorInfo, expirationTime);
           enqueueUpdate(fiber, update);
@@ -54903,7 +55516,7 @@ function computeExpirationForFiber(currentTime, fiber) {
   } else {
     // No explicit expiration context was set, and we're not currently
     // performing work. Calculate a new expiration time.
-    if (fiber.mode & AsyncMode) {
+    if (fiber.mode & ConcurrentMode) {
       if (isBatchingInteractiveUpdates) {
         // This is an interactive update
         expirationTime = computeInteractiveExpiration(currentTime);
@@ -54925,7 +55538,7 @@ function computeExpirationForFiber(currentTime, fiber) {
     // This is an interactive update. Keep track of the lowest pending
     // interactive expiration time. This allows us to synchronously flush
     // all interactive updates when needed.
-    if (lowestPriorityPendingInteractiveExpirationTime === NoWork || expirationTime > lowestPriorityPendingInteractiveExpirationTime) {
+    if (expirationTime > lowestPriorityPendingInteractiveExpirationTime) {
       lowestPriorityPendingInteractiveExpirationTime = expirationTime;
     }
   }
@@ -54943,41 +55556,69 @@ function renderDidError() {
   nextRenderDidError = true;
 }
 
-function retrySuspendedRoot(root, fiber, suspendedTime) {
-  if (enableSuspense) {
-    var retryTime = void 0;
+function retrySuspendedRoot(root, boundaryFiber, sourceFiber, suspendedTime) {
+  var retryTime = void 0;
 
-    if (isPriorityLevelSuspended(root, suspendedTime)) {
-      // Ping at the original level
-      retryTime = suspendedTime;
-      markPingedPriorityLevel(root, retryTime);
-    } else {
-      // Placeholder already timed out. Compute a new expiration time
-      var currentTime = requestCurrentTime();
-      retryTime = computeExpirationForFiber(currentTime, fiber);
-      markPendingPriorityLevel(root, retryTime);
-    }
+  if (isPriorityLevelSuspended(root, suspendedTime)) {
+    // Ping at the original level
+    retryTime = suspendedTime;
 
-    scheduleWorkToRoot(fiber, retryTime);
-    var rootExpirationTime = root.expirationTime;
-    if (rootExpirationTime !== NoWork) {
-      if (enableSchedulerTracing) {
-        // Restore previous interactions so that new work is associated with them.
-        var prevInteractions = tracing.__interactionsRef.current;
-        tracing.__interactionsRef.current = root.memoizedInteractions;
-        // Because suspense timeouts do not decrement the interaction count,
-        // Continued suspense work should also not increment the count.
-        storeInteractionsForExpirationTime(root, rootExpirationTime, false);
-        requestWork(root, rootExpirationTime);
-        tracing.__interactionsRef.current = prevInteractions;
-      } else {
-        requestWork(root, rootExpirationTime);
-      }
+    markPingedPriorityLevel(root, retryTime);
+  } else {
+    // Suspense already timed out. Compute a new expiration time
+    var currentTime = requestCurrentTime();
+    retryTime = computeExpirationForFiber(currentTime, boundaryFiber);
+    markPendingPriorityLevel(root, retryTime);
+  }
+
+  // TODO: If the suspense fiber has already rendered the primary children
+  // without suspending (that is, all of the promises have already resolved),
+  // we should not trigger another update here. One case this happens is when
+  // we are in sync mode and a single promise is thrown both on initial render
+  // and on update; we attach two .then(retrySuspendedRoot) callbacks and each
+  // one performs Sync work, rerendering the Suspense.
+
+  if ((boundaryFiber.mode & ConcurrentMode) !== NoContext) {
+    if (root === nextRoot && nextRenderExpirationTime === suspendedTime) {
+      // Received a ping at the same priority level at which we're currently
+      // rendering. Restart from the root.
+      nextRoot = null;
     }
+  }
+
+  scheduleWorkToRoot(boundaryFiber, retryTime);
+  if ((boundaryFiber.mode & ConcurrentMode) === NoContext) {
+    // Outside of concurrent mode, we must schedule an update on the source
+    // fiber, too, since it already committed in an inconsistent state and
+    // therefore does not have any pending work.
+    scheduleWorkToRoot(sourceFiber, retryTime);
+    var sourceTag = sourceFiber.tag;
+    if (sourceTag === ClassComponent && sourceFiber.stateNode !== null) {
+      // When we try rendering again, we should not reuse the current fiber,
+      // since it's known to be in an inconsistent state. Use a force updte to
+      // prevent a bail out.
+      var update = createUpdate(retryTime);
+      update.tag = ForceUpdate;
+      enqueueUpdate(sourceFiber, update);
+    }
+  }
+
+  var rootExpirationTime = root.expirationTime;
+  if (rootExpirationTime !== NoWork) {
+    requestWork(root, rootExpirationTime);
   }
 }
 
 function scheduleWorkToRoot(fiber, expirationTime) {
+  recordScheduleUpdate();
+
+  {
+    if (fiber.tag === ClassComponent) {
+      var instance = fiber.stateNode;
+      warnAboutInvalidUpdates(instance);
+    }
+  }
+
   // Update the source fiber's expiration time
   if (fiber.expirationTime === NoWork || fiber.expirationTime > expirationTime) {
     fiber.expirationTime = expirationTime;
@@ -54988,83 +55629,73 @@ function scheduleWorkToRoot(fiber, expirationTime) {
   }
   // Walk the parent path to the root and update the child expiration time.
   var node = fiber.return;
+  var root = null;
   if (node === null && fiber.tag === HostRoot) {
-    return fiber.stateNode;
-  }
-  while (node !== null) {
-    alternate = node.alternate;
-    if (node.childExpirationTime === NoWork || node.childExpirationTime > expirationTime) {
-      node.childExpirationTime = expirationTime;
-      if (alternate !== null && (alternate.childExpirationTime === NoWork || alternate.childExpirationTime > expirationTime)) {
+    root = fiber.stateNode;
+  } else {
+    while (node !== null) {
+      alternate = node.alternate;
+      if (node.childExpirationTime === NoWork || node.childExpirationTime > expirationTime) {
+        node.childExpirationTime = expirationTime;
+        if (alternate !== null && (alternate.childExpirationTime === NoWork || alternate.childExpirationTime > expirationTime)) {
+          alternate.childExpirationTime = expirationTime;
+        }
+      } else if (alternate !== null && (alternate.childExpirationTime === NoWork || alternate.childExpirationTime > expirationTime)) {
         alternate.childExpirationTime = expirationTime;
       }
-    } else if (alternate !== null && (alternate.childExpirationTime === NoWork || alternate.childExpirationTime > expirationTime)) {
-      alternate.childExpirationTime = expirationTime;
+      if (node.return === null && node.tag === HostRoot) {
+        root = node.stateNode;
+        break;
+      }
+      node = node.return;
     }
-    if (node.return === null && node.tag === HostRoot) {
-      return node.stateNode;
-    }
-    node = node.return;
-  }
-  return null;
-}
-
-function storeInteractionsForExpirationTime(root, expirationTime, updateInteractionCounts) {
-  if (!enableSchedulerTracing) {
-    return;
   }
 
-  var interactions = tracing.__interactionsRef.current;
-  if (interactions.size > 0) {
-    var pendingInteractions = root.pendingInteractionMap.get(expirationTime);
-    if (pendingInteractions != null) {
-      interactions.forEach(function (interaction) {
-        if (updateInteractionCounts && !pendingInteractions.has(interaction)) {
-          // Update the pending async work count for previously unscheduled interaction.
-          interaction.__count++;
-        }
+  if (root === null) {
+    if (true && fiber.tag === ClassComponent) {
+      warnAboutUpdateOnUnmounted(fiber);
+    }
+    return null;
+  }
 
-        pendingInteractions.add(interaction);
-      });
-    } else {
-      root.pendingInteractionMap.set(expirationTime, new Set(interactions));
+  if (enableSchedulerTracing) {
+    var interactions = tracing.__interactionsRef.current;
+    if (interactions.size > 0) {
+      var pendingInteractionMap = root.pendingInteractionMap;
+      var pendingInteractions = pendingInteractionMap.get(expirationTime);
+      if (pendingInteractions != null) {
+        interactions.forEach(function (interaction) {
+          if (!pendingInteractions.has(interaction)) {
+            // Update the pending async work count for previously unscheduled interaction.
+            interaction.__count++;
+          }
 
-      // Update the pending async work count for the current interactions.
-      if (updateInteractionCounts) {
+          pendingInteractions.add(interaction);
+        });
+      } else {
+        pendingInteractionMap.set(expirationTime, new Set(interactions));
+
+        // Update the pending async work count for the current interactions.
         interactions.forEach(function (interaction) {
           interaction.__count++;
         });
       }
-    }
 
-    var subscriber = tracing.__subscriberRef.current;
-    if (subscriber !== null) {
-      var threadID = computeThreadID(expirationTime, root.interactionThreadID);
-      subscriber.onWorkScheduled(interactions, threadID);
+      var subscriber = tracing.__subscriberRef.current;
+      if (subscriber !== null) {
+        var threadID = computeThreadID(expirationTime, root.interactionThreadID);
+        subscriber.onWorkScheduled(interactions, threadID);
+      }
     }
   }
+
+  return root;
 }
 
 function scheduleWork(fiber, expirationTime) {
-  recordScheduleUpdate();
-
-  {
-    if (fiber.tag === ClassComponent || fiber.tag === ClassComponentLazy) {
-      var instance = fiber.stateNode;
-      warnAboutInvalidUpdates(instance);
-    }
-  }
-
   var root = scheduleWorkToRoot(fiber, expirationTime);
   if (root === null) {
-    if (true && (fiber.tag === ClassComponent || fiber.tag === ClassComponentLazy)) {
-      warnAboutUpdateOnUnmounted(fiber);
-    }
     return;
-  }
-
-  if (enableSchedulerTracing) {
-    storeInteractionsForExpirationTime(root, expirationTime, true);
   }
 
   if (!isWorking && nextRenderExpirationTime !== NoWork && expirationTime < nextRenderExpirationTime) {
@@ -55123,7 +55754,7 @@ var isBatchingInteractiveUpdates = false;
 
 var completedBatches = null;
 
-var originalStartTimeMs = schedule.unstable_now();
+var originalStartTimeMs = scheduler.unstable_now();
 var currentRendererTime = msToExpirationTime(originalStartTimeMs);
 var currentSchedulerTime = currentRendererTime;
 
@@ -55135,7 +55766,7 @@ var lastCommittedRootDuringThisBatch = null;
 var timeHeuristicForUnitOfWork = 1;
 
 function recomputeCurrentRendererTime() {
-  var currentTimeMs = schedule.unstable_now() - originalStartTimeMs;
+  var currentTimeMs = scheduler.unstable_now() - originalStartTimeMs;
   currentRendererTime = msToExpirationTime(currentTimeMs);
 }
 
@@ -55149,7 +55780,7 @@ function scheduleCallbackWithExpirationTime(root, expirationTime) {
       if (callbackID !== null) {
         // Existing callback has insufficient timeout. Cancel and schedule a
         // new one.
-        schedule.unstable_cancelScheduledWork(callbackID);
+        scheduler.unstable_cancelCallback(callbackID);
       }
     }
     // The request callback timer is already running. Don't start a new one.
@@ -55158,10 +55789,10 @@ function scheduleCallbackWithExpirationTime(root, expirationTime) {
   }
 
   callbackExpirationTime = expirationTime;
-  var currentMs = schedule.unstable_now() - originalStartTimeMs;
+  var currentMs = scheduler.unstable_now() - originalStartTimeMs;
   var expirationTimeMs = expirationTimeToMs(expirationTime);
   var timeout = expirationTimeMs - currentMs;
-  callbackID = schedule.unstable_scheduleWork(performAsyncWork, { timeout: timeout });
+  callbackID = scheduler.unstable_scheduleCallback(performAsyncWork, { timeout: timeout });
 }
 
 // For every call to renderRoot, one of onFatal, onComplete, onSuspend, and
@@ -55179,7 +55810,7 @@ function onComplete(root, finishedWork, expirationTime) {
 
 function onSuspend(root, finishedWork, suspendedExpirationTime, rootExpirationTime, msUntilTimeout) {
   root.expirationTime = rootExpirationTime;
-  if (enableSuspense && msUntilTimeout === 0 && !shouldYield()) {
+  if (msUntilTimeout === 0 && !shouldYield()) {
     // Don't wait an additional tick. Commit the tree immediately.
     root.pendingCommitExpirationTime = suspendedExpirationTime;
     root.finishedWork = finishedWork;
@@ -55194,26 +55825,15 @@ function onYield(root) {
 }
 
 function onTimeout(root, finishedWork, suspendedExpirationTime) {
-  if (enableSuspense) {
-    // The root timed out. Commit it.
-    root.pendingCommitExpirationTime = suspendedExpirationTime;
-    root.finishedWork = finishedWork;
-    // Read the current time before entering the commit phase. We can be
-    // certain this won't cause tearing related to batching of event updates
-    // because we're at the top of a timer event.
-    recomputeCurrentRendererTime();
-    currentSchedulerTime = currentRendererTime;
-
-    if (enableSchedulerTracing) {
-      // Don't update pending interaction counts for suspense timeouts,
-      // Because we know we still need to do more work in this case.
-      suspenseDidTimeout = true;
-      flushRoot(root, suspendedExpirationTime);
-      suspenseDidTimeout = false;
-    } else {
-      flushRoot(root, suspendedExpirationTime);
-    }
-  }
+  // The root timed out. Commit it.
+  root.pendingCommitExpirationTime = suspendedExpirationTime;
+  root.finishedWork = finishedWork;
+  // Read the current time before entering the commit phase. We can be
+  // certain this won't cause tearing related to batching of event updates
+  // because we're at the top of a timer event.
+  recomputeCurrentRendererTime();
+  currentSchedulerTime = currentRendererTime;
+  flushRoot(root, suspendedExpirationTime);
 }
 
 function onCommit(root, expirationTime) {
@@ -55512,7 +56132,7 @@ function performWorkOnRoot(root, expirationTime, isExpired) {
       // If this root previously suspended, clear its existing timeout, since
       // we're about to try rendering again.
       var timeoutHandle = root.timeoutHandle;
-      if (enableSuspense && timeoutHandle !== noTimeout) {
+      if (timeoutHandle !== noTimeout) {
         root.timeoutHandle = noTimeout;
         // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
         cancelTimeout(timeoutHandle);
@@ -55536,7 +56156,7 @@ function performWorkOnRoot(root, expirationTime, isExpired) {
       // If this root previously suspended, clear its existing timeout, since
       // we're about to try rendering again.
       var _timeoutHandle = root.timeoutHandle;
-      if (enableSuspense && _timeoutHandle !== noTimeout) {
+      if (_timeoutHandle !== noTimeout) {
         root.timeoutHandle = noTimeout;
         // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
         cancelTimeout(_timeoutHandle);
@@ -55720,9 +56340,11 @@ function flushControlled(fn) {
 
 
 var didWarnAboutNestedUpdates = void 0;
+var didWarnAboutFindNodeInStrictMode = void 0;
 
 {
   didWarnAboutNestedUpdates = false;
+  didWarnAboutFindNodeInStrictMode = {};
 }
 
 function getContextForSubtree(parentComponent) {
@@ -55737,11 +56359,6 @@ function getContextForSubtree(parentComponent) {
     var Component = fiber.type;
     if (isContextProvider(Component)) {
       return processChildContext(fiber, Component, parentContext);
-    }
-  } else if (fiber.tag === ClassComponentLazy) {
-    var _Component = getResultFromResolvedThenable(fiber.type);
-    if (isContextProvider(_Component)) {
-      return processChildContext(fiber, _Component, parentContext);
     }
   }
 
@@ -55814,8 +56431,38 @@ function findHostInstance(component) {
   return hostFiber.stateNode;
 }
 
-function createContainer(containerInfo, isAsync, hydrate) {
-  return createFiberRoot(containerInfo, isAsync, hydrate);
+function findHostInstanceWithWarning(component, methodName) {
+  {
+    var fiber = get(component);
+    if (fiber === undefined) {
+      if (typeof component.render === 'function') {
+        invariant(false, 'Unable to find node on an unmounted component.');
+      } else {
+        invariant(false, 'Argument appears to not be a ReactComponent. Keys: %s', Object.keys(component));
+      }
+    }
+    var hostFiber = findCurrentHostFiber(fiber);
+    if (hostFiber === null) {
+      return null;
+    }
+    if (hostFiber.mode & StrictMode) {
+      var componentName = getComponentName(fiber.type) || 'Component';
+      if (!didWarnAboutFindNodeInStrictMode[componentName]) {
+        didWarnAboutFindNodeInStrictMode[componentName] = true;
+        if (fiber.mode & StrictMode) {
+          warningWithoutStack$1(false, '%s is deprecated in StrictMode. ' + '%s was passed an instance of %s which is inside StrictMode. ' + 'Instead, add a ref directly to the element you want to reference.' + '\n%s' + '\n\nLearn more about using refs safely here:' + '\nhttps://fb.me/react-strict-mode-find-node', methodName, methodName, componentName, getStackByFiberInDevAndProd(hostFiber));
+        } else {
+          warningWithoutStack$1(false, '%s is deprecated in StrictMode. ' + '%s was passed an instance of %s which renders StrictMode children. ' + 'Instead, add a ref directly to the element you want to reference.' + '\n%s' + '\n\nLearn more about using refs safely here:' + '\nhttps://fb.me/react-strict-mode-find-node', methodName, methodName, componentName, getStackByFiberInDevAndProd(hostFiber));
+        }
+      }
+    }
+    return hostFiber.stateNode;
+  }
+  return findHostInstance(component);
+}
+
+function createContainer(containerInfo, isConcurrent, hydrate) {
+  return createFiberRoot(containerInfo, isConcurrent, hydrate);
 }
 
 function updateContainer(element, container, parentComponent, callback) {
@@ -55887,7 +56534,7 @@ implementation) {
 
 // TODO: this is special because it gets imported during build.
 
-var ReactVersion = '16.5.2';
+var ReactVersion = '16.6.0';
 
 // TODO: This type is shared between the reconciler and ReactDOM, but will
 // eventually be lifted out to the renderer.
@@ -55929,10 +56576,6 @@ var didWarnAboutUnstableCreatePortal = false;
 }
 
 setRestoreImplementation(restoreControlledState$1);
-
-/* eslint-disable no-use-before-define */
-
-/* eslint-enable no-use-before-define */
 
 function ReactBatch(root) {
   var expirationTime = computeUniqueAsyncExpiration();
@@ -56074,8 +56717,8 @@ ReactWork.prototype._onCommit = function () {
   }
 };
 
-function ReactRoot(container, isAsync, hydrate) {
-  var root = createContainer(container, isAsync, hydrate);
+function ReactRoot(container, isConcurrent, hydrate) {
+  var root = createContainer(container, isConcurrent, hydrate);
   this._internalRoot = root;
 }
 ReactRoot.prototype.render = function (children, callback) {
@@ -56198,8 +56841,8 @@ function legacyCreateRootFromDOMContainer(container, forceHydrate) {
     }
   }
   // Legacy roots are not async by default.
-  var isAsync = false;
-  return new ReactRoot(container, isAsync, shouldHydrate);
+  var isConcurrent = false;
+  return new ReactRoot(container, isConcurrent, shouldHydrate);
 }
 
 function legacyRenderSubtreeIntoContainer(parentComponent, children, container, forceHydrate, callback) {
@@ -56275,7 +56918,9 @@ var ReactDOM = {
     if (componentOrElement.nodeType === ELEMENT_NODE) {
       return componentOrElement;
     }
-
+    {
+      return findHostInstanceWithWarning(componentOrElement, 'findDOMNode');
+    }
     return findHostInstance(componentOrElement);
   },
   hydrate: function (element, container, callback) {
@@ -56401,7 +57046,7 @@ module.exports = reactDom;
 
 
 if (false) {
-  module.exports = require('./cjs/schedule.production.min.js');
+  module.exports = require('./cjs/scheduler.production.min.js');
 } else {
   module.exports = __webpack_require__(45);
 }
@@ -56412,8 +57057,8 @@ if (false) {
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/** @license React v16.5.2
- * schedule.development.js
+/** @license React v16.6.0
+ * scheduler.development.js
  *
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
@@ -56433,14 +57078,34 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 /* eslint-disable no-var */
 
-// TODO: Currently there's only a single priority level, Deferred. Will add
-// additional priorities.
-var DEFERRED_TIMEOUT = 5000;
+// TODO: Use symbols?
+var ImmediatePriority = 1;
+var UserBlockingPriority = 2;
+var NormalPriority = 3;
+var IdlePriority = 4;
+
+// Max 31 bit integer. The max integer size in V8 for 32-bit systems.
+// Math.pow(2, 30) - 1
+// 0b111111111111111111111111111111
+var maxSigned31BitInt = 1073741823;
+
+// Times out immediately
+var IMMEDIATE_PRIORITY_TIMEOUT = -1;
+// Eventually times out
+var USER_BLOCKING_PRIORITY = 250;
+var NORMAL_PRIORITY_TIMEOUT = 5000;
+// Never times out
+var IDLE_PRIORITY = maxSigned31BitInt;
 
 // Callbacks are stored as a circular, doubly linked list.
 var firstCallbackNode = null;
 
-var isPerformingWork = false;
+var currentPriorityLevel = NormalPriority;
+var currentEventStartTime = -1;
+var currentExpirationTime = -1;
+
+// This is set when a callback is being executed, to prevent re-entrancy.
+var isExecutingCallback = false;
 
 var isHostCallbackScheduled = false;
 
@@ -56449,6 +57114,11 @@ var hasNativePerformanceNow = typeof performance === 'object' && typeof performa
 var timeRemaining;
 if (hasNativePerformanceNow) {
   timeRemaining = function () {
+    if (firstCallbackNode !== null && firstCallbackNode.expirationTime < currentExpirationTime) {
+      // A higher priority callback was scheduled. Yield so we can switch to
+      // working on that.
+      return 0;
+    }
     // We assume that if we have a performance timer that the rAF callback
     // gets a performance timer value. Not sure if this is always true.
     var remaining = getFrameDeadline() - performance.now();
@@ -56457,6 +57127,9 @@ if (hasNativePerformanceNow) {
 } else {
   timeRemaining = function () {
     // Fallback to Date.now()
+    if (firstCallbackNode !== null && firstCallbackNode.expirationTime < currentExpirationTime) {
+      return 0;
+    }
     var remaining = getFrameDeadline() - Date.now();
     return remaining > 0 ? remaining : 0;
   };
@@ -56468,22 +57141,22 @@ var deadlineObject = {
 };
 
 function ensureHostCallbackIsScheduled() {
-  if (isPerformingWork) {
+  if (isExecutingCallback) {
     // Don't schedule work yet; wait until the next time we yield.
     return;
   }
-  // Schedule the host callback using the earliest timeout in the list.
-  var timesOutAt = firstCallbackNode.timesOutAt;
+  // Schedule the host callback using the earliest expiration in the list.
+  var expirationTime = firstCallbackNode.expirationTime;
   if (!isHostCallbackScheduled) {
     isHostCallbackScheduled = true;
   } else {
     // Cancel the existing host callback.
-    cancelCallback();
+    cancelHostCallback();
   }
-  requestCallback(flushWork, timesOutAt);
+  requestHostCallback(flushWork, expirationTime);
 }
 
-function flushFirstCallback(node) {
+function flushFirstCallback() {
   var flushedNode = firstCallbackNode;
 
   // Remove the node from the list before calling the callback. That way the
@@ -56494,33 +57167,117 @@ function flushFirstCallback(node) {
     firstCallbackNode = null;
     next = null;
   } else {
-    var previous = firstCallbackNode.previous;
-    firstCallbackNode = previous.next = next;
-    next.previous = previous;
+    var lastCallbackNode = firstCallbackNode.previous;
+    firstCallbackNode = lastCallbackNode.next = next;
+    next.previous = lastCallbackNode;
   }
 
   flushedNode.next = flushedNode.previous = null;
 
   // Now it's safe to call the callback.
   var callback = flushedNode.callback;
-  callback(deadlineObject);
+  var expirationTime = flushedNode.expirationTime;
+  var priorityLevel = flushedNode.priorityLevel;
+  var previousPriorityLevel = currentPriorityLevel;
+  var previousExpirationTime = currentExpirationTime;
+  currentPriorityLevel = priorityLevel;
+  currentExpirationTime = expirationTime;
+  var continuationCallback;
+  try {
+    continuationCallback = callback(deadlineObject);
+  } finally {
+    currentPriorityLevel = previousPriorityLevel;
+    currentExpirationTime = previousExpirationTime;
+  }
+
+  // A callback may return a continuation. The continuation should be scheduled
+  // with the same priority and expiration as the just-finished callback.
+  if (typeof continuationCallback === 'function') {
+    var continuationNode = {
+      callback: continuationCallback,
+      priorityLevel: priorityLevel,
+      expirationTime: expirationTime,
+      next: null,
+      previous: null
+    };
+
+    // Insert the new callback into the list, sorted by its expiration. This is
+    // almost the same as the code in `scheduleCallback`, except the callback
+    // is inserted into the list *before* callbacks of equal expiration instead
+    // of after.
+    if (firstCallbackNode === null) {
+      // This is the first callback in the list.
+      firstCallbackNode = continuationNode.next = continuationNode.previous = continuationNode;
+    } else {
+      var nextAfterContinuation = null;
+      var node = firstCallbackNode;
+      do {
+        if (node.expirationTime >= expirationTime) {
+          // This callback expires at or after the continuation. We will insert
+          // the continuation *before* this callback.
+          nextAfterContinuation = node;
+          break;
+        }
+        node = node.next;
+      } while (node !== firstCallbackNode);
+
+      if (nextAfterContinuation === null) {
+        // No equal or lower priority callback was found, which means the new
+        // callback is the lowest priority callback in the list.
+        nextAfterContinuation = firstCallbackNode;
+      } else if (nextAfterContinuation === firstCallbackNode) {
+        // The new callback is the highest priority callback in the list.
+        firstCallbackNode = continuationNode;
+        ensureHostCallbackIsScheduled();
+      }
+
+      var previous = nextAfterContinuation.previous;
+      previous.next = nextAfterContinuation.previous = continuationNode;
+      continuationNode.next = nextAfterContinuation;
+      continuationNode.previous = previous;
+    }
+  }
+}
+
+function flushImmediateWork() {
+  if (
+  // Confirm we've exited the outer most event handler
+  currentEventStartTime === -1 && firstCallbackNode !== null && firstCallbackNode.priorityLevel === ImmediatePriority) {
+    isExecutingCallback = true;
+    deadlineObject.didTimeout = true;
+    try {
+      do {
+        flushFirstCallback();
+      } while (
+      // Keep flushing until there are no more immediate callbacks
+      firstCallbackNode !== null && firstCallbackNode.priorityLevel === ImmediatePriority);
+    } finally {
+      isExecutingCallback = false;
+      if (firstCallbackNode !== null) {
+        // There's still work remaining. Request another callback.
+        ensureHostCallbackIsScheduled();
+      } else {
+        isHostCallbackScheduled = false;
+      }
+    }
+  }
 }
 
 function flushWork(didTimeout) {
-  isPerformingWork = true;
+  isExecutingCallback = true;
   deadlineObject.didTimeout = didTimeout;
   try {
     if (didTimeout) {
-      // Flush all the timed out callbacks without yielding.
+      // Flush all the expired callbacks without yielding.
       while (firstCallbackNode !== null) {
         // Read the current time. Flush all the callbacks that expire at or
         // earlier than that time. Then read the current time again and repeat.
         // This optimizes for as few performance.now calls as possible.
         var currentTime = exports.unstable_now();
-        if (firstCallbackNode.timesOutAt <= currentTime) {
+        if (firstCallbackNode.expirationTime <= currentTime) {
           do {
             flushFirstCallback();
-          } while (firstCallbackNode !== null && firstCallbackNode.timesOutAt <= currentTime);
+          } while (firstCallbackNode !== null && firstCallbackNode.expirationTime <= currentTime);
           continue;
         }
         break;
@@ -56534,46 +57291,109 @@ function flushWork(didTimeout) {
       }
     }
   } finally {
-    isPerformingWork = false;
+    isExecutingCallback = false;
     if (firstCallbackNode !== null) {
       // There's still work remaining. Request another callback.
-      ensureHostCallbackIsScheduled(firstCallbackNode);
+      ensureHostCallbackIsScheduled();
     } else {
       isHostCallbackScheduled = false;
     }
+    // Before exiting, flush all the immediate work that was scheduled.
+    flushImmediateWork();
   }
 }
 
-function unstable_scheduleWork(callback, options) {
-  var currentTime = exports.unstable_now();
+function unstable_runWithPriority(priorityLevel, eventHandler) {
+  switch (priorityLevel) {
+    case ImmediatePriority:
+    case UserBlockingPriority:
+    case NormalPriority:
+    case IdlePriority:
+      break;
+    default:
+      priorityLevel = NormalPriority;
+  }
 
-  var timesOutAt;
-  if (options !== undefined && options !== null && options.timeout !== null && options.timeout !== undefined) {
-    // Check for an explicit timeout
-    timesOutAt = currentTime + options.timeout;
+  var previousPriorityLevel = currentPriorityLevel;
+  var previousEventStartTime = currentEventStartTime;
+  currentPriorityLevel = priorityLevel;
+  currentEventStartTime = exports.unstable_now();
+
+  try {
+    return eventHandler();
+  } finally {
+    currentPriorityLevel = previousPriorityLevel;
+    currentEventStartTime = previousEventStartTime;
+
+    // Before exiting, flush all the immediate work that was scheduled.
+    flushImmediateWork();
+  }
+}
+
+function unstable_wrapCallback(callback) {
+  var parentPriorityLevel = currentPriorityLevel;
+  return function () {
+    // This is a fork of runWithPriority, inlined for performance.
+    var previousPriorityLevel = currentPriorityLevel;
+    var previousEventStartTime = currentEventStartTime;
+    currentPriorityLevel = parentPriorityLevel;
+    currentEventStartTime = exports.unstable_now();
+
+    try {
+      return callback.apply(this, arguments);
+    } finally {
+      currentPriorityLevel = previousPriorityLevel;
+      currentEventStartTime = previousEventStartTime;
+      flushImmediateWork();
+    }
+  };
+}
+
+function unstable_scheduleCallback(callback, deprecated_options) {
+  var startTime = currentEventStartTime !== -1 ? currentEventStartTime : exports.unstable_now();
+
+  var expirationTime;
+  if (typeof deprecated_options === 'object' && deprecated_options !== null && typeof deprecated_options.timeout === 'number') {
+    // FIXME: Remove this branch once we lift expiration times out of React.
+    expirationTime = startTime + deprecated_options.timeout;
   } else {
-    // Compute an absolute timeout using the default constant.
-    timesOutAt = currentTime + DEFERRED_TIMEOUT;
+    switch (currentPriorityLevel) {
+      case ImmediatePriority:
+        expirationTime = startTime + IMMEDIATE_PRIORITY_TIMEOUT;
+        break;
+      case UserBlockingPriority:
+        expirationTime = startTime + USER_BLOCKING_PRIORITY;
+        break;
+      case IdlePriority:
+        expirationTime = startTime + IDLE_PRIORITY;
+        break;
+      case NormalPriority:
+      default:
+        expirationTime = startTime + NORMAL_PRIORITY_TIMEOUT;
+    }
   }
 
   var newNode = {
     callback: callback,
-    timesOutAt: timesOutAt,
+    priorityLevel: currentPriorityLevel,
+    expirationTime: expirationTime,
     next: null,
     previous: null
   };
 
-  // Insert the new callback into the list, sorted by its timeout.
+  // Insert the new callback into the list, ordered first by expiration, then
+  // by insertion. So the new callback is inserted any other callback with
+  // equal expiration.
   if (firstCallbackNode === null) {
     // This is the first callback in the list.
     firstCallbackNode = newNode.next = newNode.previous = newNode;
-    ensureHostCallbackIsScheduled(firstCallbackNode);
+    ensureHostCallbackIsScheduled();
   } else {
     var next = null;
     var node = firstCallbackNode;
     do {
-      if (node.timesOutAt > timesOutAt) {
-        // The new callback times out before this one.
+      if (node.expirationTime > expirationTime) {
+        // The new callback expires before this one.
         next = node;
         break;
       }
@@ -56581,13 +57401,13 @@ function unstable_scheduleWork(callback, options) {
     } while (node !== firstCallbackNode);
 
     if (next === null) {
-      // No callback with a later timeout was found, which means the new
-      // callback has the latest timeout in the list.
+      // No callback with a later expiration was found, which means the new
+      // callback has the latest expiration in the list.
       next = firstCallbackNode;
     } else if (next === firstCallbackNode) {
-      // The new callback has the earliest timeout in the entire list.
+      // The new callback has the earliest expiration in the entire list.
       firstCallbackNode = newNode;
-      ensureHostCallbackIsScheduled(firstCallbackNode);
+      ensureHostCallbackIsScheduled();
     }
 
     var previous = next.previous;
@@ -56599,7 +57419,7 @@ function unstable_scheduleWork(callback, options) {
   return newNode;
 }
 
-function unstable_cancelScheduledWork(callbackNode) {
+function unstable_cancelCallback(callbackNode) {
   var next = callbackNode.next;
   if (next === null) {
     // Already cancelled.
@@ -56620,6 +57440,10 @@ function unstable_cancelScheduledWork(callbackNode) {
   }
 
   callbackNode.next = callbackNode.previous = null;
+}
+
+function unstable_getCurrentPriorityLevel() {
+  return currentPriorityLevel;
 }
 
 // The remaining code is essentially a polyfill for requestIdleCallback. It
@@ -56680,31 +57504,59 @@ if (hasNativePerformanceNow) {
   };
 }
 
-var requestCallback;
-var cancelCallback;
+var requestHostCallback;
+var cancelHostCallback;
 var getFrameDeadline;
 
-if (typeof window === 'undefined') {
-  // If this accidentally gets imported in a non-browser environment, fallback
-  // to a naive implementation.
-  var timeoutID = -1;
-  requestCallback = function (callback, absoluteTimeout) {
-    timeoutID = setTimeout(callback, 0, true);
-  };
-  cancelCallback = function () {
-    clearTimeout(timeoutID);
-  };
-  getFrameDeadline = function () {
-    return 0;
-  };
-} else if (window._schedMock) {
+if (typeof window !== 'undefined' && window._schedMock) {
   // Dynamic injection, only for testing purposes.
   var impl = window._schedMock;
-  requestCallback = impl[0];
-  cancelCallback = impl[1];
+  requestHostCallback = impl[0];
+  cancelHostCallback = impl[1];
   getFrameDeadline = impl[2];
+} else if (
+// If Scheduler runs in a non-DOM environment, it falls back to a naive
+// implementation using setTimeout.
+typeof window === 'undefined' ||
+// "addEventListener" might not be available on the window object
+// if this is a mocked "window" object. So we need to validate that too.
+typeof window.addEventListener !== 'function') {
+  var _callback = null;
+  var _currentTime = -1;
+  var _flushCallback = function (didTimeout, ms) {
+    if (_callback !== null) {
+      var cb = _callback;
+      _callback = null;
+      try {
+        _currentTime = ms;
+        cb(didTimeout);
+      } finally {
+        _currentTime = -1;
+      }
+    }
+  };
+  requestHostCallback = function (cb, ms) {
+    if (_currentTime !== -1) {
+      // Protect against re-entrancy.
+      setTimeout(requestHostCallback, 0, cb, ms);
+    } else {
+      _callback = cb;
+      setTimeout(_flushCallback, ms, true, ms);
+      setTimeout(_flushCallback, maxSigned31BitInt, false, maxSigned31BitInt);
+    }
+  };
+  cancelHostCallback = function () {
+    _callback = null;
+  };
+  getFrameDeadline = function () {
+    return Infinity;
+  };
+  exports.unstable_now = function () {
+    return _currentTime === -1 ? 0 : _currentTime;
+  };
 } else {
   if (typeof console !== 'undefined') {
+    // TODO: Remove fb.me link
     if (typeof localRequestAnimationFrame !== 'function') {
       console.error("This browser doesn't support requestAnimationFrame. " + 'Make sure that you load a ' + 'polyfill in older browsers. https://fb.me/react-polyfills');
     }
@@ -56713,13 +57565,13 @@ if (typeof window === 'undefined') {
     }
   }
 
-  var scheduledCallback = null;
-  var isIdleScheduled = false;
+  var scheduledHostCallback = null;
+  var isMessageEventScheduled = false;
   var timeoutTime = -1;
 
   var isAnimationFrameScheduled = false;
 
-  var isPerformingIdleWork = false;
+  var isFlushingHostCallback = false;
 
   var frameDeadline = 0;
   // We start out assuming that we run at 30fps but then the heuristic tracking
@@ -56739,7 +57591,12 @@ if (typeof window === 'undefined') {
       return;
     }
 
-    isIdleScheduled = false;
+    isMessageEventScheduled = false;
+
+    var prevScheduledCallback = scheduledHostCallback;
+    var prevTimeoutTime = timeoutTime;
+    scheduledHostCallback = null;
+    timeoutTime = -1;
 
     var currentTime = exports.unstable_now();
 
@@ -56747,7 +57604,7 @@ if (typeof window === 'undefined') {
     if (frameDeadline - currentTime <= 0) {
       // There's no time left in this idle period. Check if the callback has
       // a timeout and whether it's been exceeded.
-      if (timeoutTime !== -1 && timeoutTime <= currentTime) {
+      if (prevTimeoutTime !== -1 && prevTimeoutTime <= currentTime) {
         // Exceeded the timeout. Invoke the callback even though there's no
         // time left.
         didTimeout = true;
@@ -56759,19 +57616,18 @@ if (typeof window === 'undefined') {
           requestAnimationFrameWithTimeout(animationTick);
         }
         // Exit without invoking the callback.
+        scheduledHostCallback = prevScheduledCallback;
+        timeoutTime = prevTimeoutTime;
         return;
       }
     }
 
-    timeoutTime = -1;
-    var callback = scheduledCallback;
-    scheduledCallback = null;
-    if (callback !== null) {
-      isPerformingIdleWork = true;
+    if (prevScheduledCallback !== null) {
+      isFlushingHostCallback = true;
       try {
-        callback(didTimeout);
+        prevScheduledCallback(didTimeout);
       } finally {
-        isPerformingIdleWork = false;
+        isFlushingHostCallback = false;
       }
     }
   };
@@ -56780,12 +57636,27 @@ if (typeof window === 'undefined') {
   window.addEventListener('message', idleTick, false);
 
   var animationTick = function (rafTime) {
-    isAnimationFrameScheduled = false;
+    if (scheduledHostCallback !== null) {
+      // Eagerly schedule the next animation callback at the beginning of the
+      // frame. If the scheduler queue is not empty at the end of the frame, it
+      // will continue flushing inside that callback. If the queue *is* empty,
+      // then it will exit immediately. Posting the callback at the start of the
+      // frame ensures it's fired within the earliest possible frame. If we
+      // waited until the end of the frame to post the callback, we risk the
+      // browser skipping a frame and not firing the callback until the frame
+      // after that.
+      requestAnimationFrameWithTimeout(animationTick);
+    } else {
+      // No pending work. Exit.
+      isAnimationFrameScheduled = false;
+      return;
+    }
+
     var nextFrameTime = rafTime - frameDeadline + activeFrameTime;
     if (nextFrameTime < activeFrameTime && previousFrameTime < activeFrameTime) {
       if (nextFrameTime < 8) {
         // Defensive coding. We don't support higher frame rates than 120hz.
-        // If we get lower than that, it is probably a bug.
+        // If the calculated frame time gets lower than 8, it is probably a bug.
         nextFrameTime = 8;
       }
       // If one frame goes long, then the next one can be short to catch up.
@@ -56800,17 +57671,16 @@ if (typeof window === 'undefined') {
       previousFrameTime = nextFrameTime;
     }
     frameDeadline = rafTime + activeFrameTime;
-    if (!isIdleScheduled) {
-      isIdleScheduled = true;
+    if (!isMessageEventScheduled) {
+      isMessageEventScheduled = true;
       window.postMessage(messageKey, '*');
     }
   };
 
-  requestCallback = function (callback, absoluteTimeout) {
-    scheduledCallback = callback;
+  requestHostCallback = function (callback, absoluteTimeout) {
+    scheduledHostCallback = callback;
     timeoutTime = absoluteTimeout;
-    if (isPerformingIdleWork) {
-      // If we're already performing idle work, an error must have been thrown.
+    if (isFlushingHostCallback || absoluteTimeout < 0) {
       // Don't wait for the next frame. Continue working ASAP, in a new event.
       window.postMessage(messageKey, '*');
     } else if (!isAnimationFrameScheduled) {
@@ -56823,15 +57693,22 @@ if (typeof window === 'undefined') {
     }
   };
 
-  cancelCallback = function () {
-    scheduledCallback = null;
-    isIdleScheduled = false;
+  cancelHostCallback = function () {
+    scheduledHostCallback = null;
+    isMessageEventScheduled = false;
     timeoutTime = -1;
   };
 }
 
-exports.unstable_scheduleWork = unstable_scheduleWork;
-exports.unstable_cancelScheduledWork = unstable_cancelScheduledWork;
+exports.unstable_ImmediatePriority = ImmediatePriority;
+exports.unstable_UserBlockingPriority = UserBlockingPriority;
+exports.unstable_NormalPriority = NormalPriority;
+exports.unstable_IdlePriority = IdlePriority;
+exports.unstable_runWithPriority = unstable_runWithPriority;
+exports.unstable_scheduleCallback = unstable_scheduleCallback;
+exports.unstable_cancelCallback = unstable_cancelCallback;
+exports.unstable_wrapCallback = unstable_wrapCallback;
+exports.unstable_getCurrentPriorityLevel = unstable_getCurrentPriorityLevel;
   })();
 }
 
@@ -56844,7 +57721,7 @@ exports.unstable_cancelScheduledWork = unstable_cancelScheduledWork;
 
 
 if (false) {
-  module.exports = require('./cjs/schedule-tracing.production.min.js');
+  module.exports = require('./cjs/scheduler-tracing.production.min.js');
 } else {
   module.exports = __webpack_require__(47);
 }
@@ -56855,8 +57732,8 @@ if (false) {
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/** @license React v16.5.2
- * schedule-tracing.development.js
+/** @license React v16.6.0
+ * scheduler-tracing.development.js
  *
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
@@ -56874,14 +57751,6 @@ if (true) {
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
-// Exports ReactDOM.createRoot
-
-
-// Experimental error-boundary API that can recover from errors within a single
-// render phase
-
-// Suspense
-
 // Helps identify side effects in begin-phase lifecycle hooks and setState reducers:
 
 
@@ -56896,9 +57765,6 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 
 // Warn about deprecated, async-unsafe lifecycles; relates to RFC #6:
-
-
-// Warn about legacy context API
 
 
 // Gather advanced timing metrics for Profiler subtrees.
@@ -57288,7 +58154,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 /* 48 */
 /***/ (function(module, exports, __webpack_require__) {
 
-/* WEBPACK VAR INJECTION */(function(setImmediate) {// 4.8.3 (2018-09-13)
+/* WEBPACK VAR INJECTION */(function(setImmediate) {// 4.8.4 (2018-10-23)
 (function () {
 (function () {
   'use strict';
@@ -57688,10 +58554,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       throw name + ' not available on this browser';
     return actual;
   };
-  var $_c0hsq1cjm0oftwy = { getOrDie: getOrDie };
+  var $_3b2dlgcjnlpawlt = { getOrDie: getOrDie };
 
   var url = function () {
-    return $_c0hsq1cjm0oftwy.getOrDie('URL');
+    return $_3b2dlgcjnlpawlt.getOrDie('URL');
   };
   var createObjectURL = function (blob) {
     return url().createObjectURL(blob);
@@ -57699,7 +58565,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var revokeObjectURL = function (u) {
     url().revokeObjectURL(u);
   };
-  var $_ax1npcbjm0oftwv = {
+  var $_9khkh7bjnlpawls = {
     createObjectURL: createObjectURL,
     revokeObjectURL: revokeObjectURL
   };
@@ -57733,7 +58599,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   gecko = !webkit && !ie11 && /Gecko/.test(userAgent);
   mac = userAgent.indexOf('Mac') !== -1;
   iDevice = /(iPad|iPhone)/.test(userAgent);
-  fileApi = 'FormData' in window && 'FileReader' in window && 'URL' in window && !!$_ax1npcbjm0oftwv.createObjectURL;
+  fileApi = 'FormData' in window && 'FileReader' in window && 'URL' in window && !!$_9khkh7bjnlpawls.createObjectURL;
   phone = matchMediaQuery('only screen and (max-device-width: 480px)') && (android || iDevice);
   tablet = matchMediaQuery('only screen and (min-width: 800px)') && (android || iDevice);
   windowsPhone = userAgent.indexOf('Windows Phone') !== -1;
@@ -57741,7 +58607,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     webkit = false;
   }
   var contentEditable = !iDevice || fileApi || parseInt(userAgent.match(/AppleWebKit\/(\d*)/)[1], 10) >= 534;
-  var $_emqeydajm0oftwm = {
+  var $_cseqobajnlpawll = {
     opera: opera,
     webkit: webkit,
     ie: ie,
@@ -57986,7 +58852,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     return func;
   };
-  var $_4oxubkijm0ofu12 = {
+  var $_2nbnh1ijnlpawpi = {
     requestAnimationFrame: function (callback, element) {
       if (requestAnimationFramePromise) {
         requestAnimationFramePromise.then(callback);
@@ -58079,7 +58945,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!event$$1.target) {
       event$$1.target = event$$1.srcElement || document;
     }
-    if ($_emqeydajm0oftwm.experimentalShadowDom) {
+    if ($_cseqobajnlpawll.experimentalShadowDom) {
       event$$1.target = getTargetFromShadowDom(originalEvent, event$$1.target);
     }
     if (originalEvent && mouseEventRe.test(originalEvent.type) && originalEvent.pageX === undefined && originalEvent.clientX !== undefined) {
@@ -58148,12 +59014,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       try {
         doc.documentElement.doScroll('left');
       } catch (ex) {
-        $_4oxubkijm0ofu12.setTimeout(tryScroll);
+        $_2nbnh1ijnlpawpi.setTimeout(tryScroll);
         return;
       }
       readyHandler();
     };
-    if (doc.addEventListener && !($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 11)) {
+    if (doc.addEventListener && !($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 11)) {
       if (isDocReady()) {
         readyHandler();
       } else {
@@ -59550,7 +60416,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var last$1 = function (collection) {
     return collection[collection.length - 1];
   };
-  var $_48w2ffmjm0ofu47 = {
+  var $_n452lmjnlpawsj = {
     isArray: isArray$1,
     toArray: toArray,
     each: each$1,
@@ -59571,7 +60437,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!type) {
       return obj !== undefined;
     }
-    if (type === 'array' && $_48w2ffmjm0ofu47.isArray(obj)) {
+    if (type === 'array' && $_n452lmjnlpawsj.isArray(obj)) {
       return true;
     }
     return typeof obj === type;
@@ -59678,7 +60544,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (n) {
         o = o[n];
       }
-      $_48w2ffmjm0ofu47.each(o, function (o, i) {
+      $_n452lmjnlpawsj.each(o, function (o, i) {
         if (f.call(s, o, i, n) === false) {
           return false;
         }
@@ -59715,25 +60581,25 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!s || is(s, 'array')) {
       return s;
     }
-    return $_48w2ffmjm0ofu47.map(s.split(d || ','), trim);
+    return $_n452lmjnlpawsj.map(s.split(d || ','), trim);
   };
   var _addCacheSuffix = function (url) {
-    var cacheSuffix = $_emqeydajm0oftwm.cacheSuffix;
+    var cacheSuffix = $_cseqobajnlpawll.cacheSuffix;
     if (cacheSuffix) {
       url += (url.indexOf('?') === -1 ? '?' : '&') + cacheSuffix;
     }
     return url;
   };
-  var $_cvczchljm0ofu3z = {
+  var $_1q1txeljnlpawsa = {
     trim: trim,
-    isArray: $_48w2ffmjm0ofu47.isArray,
+    isArray: $_n452lmjnlpawsj.isArray,
     is: is,
-    toArray: $_48w2ffmjm0ofu47.toArray,
+    toArray: $_n452lmjnlpawsj.toArray,
     makeMap: makeMap,
-    each: $_48w2ffmjm0ofu47.each,
-    map: $_48w2ffmjm0ofu47.map,
-    grep: $_48w2ffmjm0ofu47.filter,
-    inArray: $_48w2ffmjm0ofu47.indexOf,
+    each: $_n452lmjnlpawsj.each,
+    map: $_n452lmjnlpawsj.map,
+    grep: $_n452lmjnlpawsj.filter,
+    inArray: $_n452lmjnlpawsj.indexOf,
     hasOwn: hasOwnProperty,
     extend: extend,
     create: create,
@@ -59749,7 +60615,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var slice$2 = Array.prototype.slice;
   var rquickExpr$1 = /^(?:[^#<]*(<[\w\W]+>)[^>]*$|#([\w\-]*)$)/;
   var Event$$1 = EventUtils.Event;
-  var skipUniques = $_cvczchljm0ofu3z.makeMap('children,contents,next,prev');
+  var skipUniques = $_1q1txeljnlpawsa.makeMap('children,contents,next,prev');
   var isDefined = function (obj) {
     return typeof obj !== 'undefined';
   };
@@ -59814,8 +60680,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     return elements;
   };
-  var numericCssMap = $_cvczchljm0ofu3z.makeMap('fillOpacity fontWeight lineHeight opacity orphans widows zIndex zoom', ' ');
-  var booleanMap = $_cvczchljm0ofu3z.makeMap('checked compact declare defer disabled ismap multiple nohref noshade nowrap readonly selected', ' ');
+  var numericCssMap = $_1q1txeljnlpawsa.makeMap('fillOpacity fontWeight lineHeight opacity orphans widows zIndex zoom', ' ');
+  var booleanMap = $_1q1txeljnlpawsa.makeMap('checked compact declare defer disabled ismap multiple nohref noshade nowrap readonly selected', ' ');
   var propFix = {
     for: 'htmlFor',
     class: 'className',
@@ -59948,7 +60814,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return self$$1;
     },
     toArray: function () {
-      return $_cvczchljm0ofu3z.toArray(this);
+      return $_1q1txeljnlpawsa.toArray(this);
     },
     add: function (items, sort) {
       var self$$1 = this;
@@ -60351,16 +61217,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     sort: [].sort,
     splice: [].splice
   };
-  $_cvczchljm0ofu3z.extend(DomQuery, {
-    extend: $_cvczchljm0ofu3z.extend,
+  $_1q1txeljnlpawsa.extend(DomQuery, {
+    extend: $_1q1txeljnlpawsa.extend,
     makeArray: function (object) {
       if (isWindow(object) || object.nodeType) {
         return [object];
       }
-      return $_cvczchljm0ofu3z.toArray(object);
+      return $_1q1txeljnlpawsa.toArray(object);
     },
     inArray: inArray,
-    isArray: $_cvczchljm0ofu3z.isArray,
+    isArray: $_1q1txeljnlpawsa.isArray,
     each: each$2,
     trim: trim$1,
     grep: grep,
@@ -60456,7 +61322,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return sibling(node.firstChild, 'nextSibling', 1);
     },
     contents: function (node) {
-      return $_cvczchljm0ofu3z.toArray((node.nodeName === 'iframe' ? node.contentDocument || node.contentWindow.document : node).childNodes);
+      return $_1q1txeljnlpawsa.toArray((node.nodeName === 'iframe' ? node.contentDocument || node.contentWindow.document : node).childNodes);
     }
   }, function (name$$1, fn) {
     DomQuery.fn[name$$1] = function (selector) {
@@ -60549,7 +61415,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       targetHooks[name$$1][prop] = func;
     });
   };
-  if ($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 8) {
+  if ($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 8) {
     appendHooks(attrHooks, 'get', {
       maxlength: function (elm) {
         var value = elm.maxLength;
@@ -60585,7 +61451,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     });
   }
-  if ($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 9) {
+  if ($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 9) {
     cssFix.float = 'styleFloat';
     appendHooks(cssHooks, 'set', {
       opacity: function (elm, value) {
@@ -60653,7 +61519,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       minor: minor
     };
   };
-  var $_380fo9sjm0ofu54 = {
+  var Version = {
     nu: nu,
     detect: detect,
     unknown: unknown
@@ -60673,7 +61539,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var unknown$1 = function () {
     return nu$1({
       current: undefined,
-      version: $_380fo9sjm0ofu54.unknown()
+      version: Version.unknown()
     });
   };
   var nu$1 = function (info) {
@@ -60690,7 +61556,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       isSafari: isBrowser(safari, current)
     };
   };
-  var $_frkkrjm0ofu4z = {
+  var Browser = {
     unknown: unknown$1,
     nu: nu$1,
     edge: constant(edge),
@@ -60716,7 +61582,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var unknown$2 = function () {
     return nu$2({
       current: undefined,
-      version: $_380fo9sjm0ofu54.unknown()
+      version: Version.unknown()
     });
   };
   var nu$2 = function (info) {
@@ -60734,7 +61600,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       isFreeBSD: isOS(freebsd, current)
     };
   };
-  var $_fkn0ntjm0ofu56 = {
+  var OperatingSystem = {
     unknown: unknown$2,
     nu: nu$2,
     windows: constant(windows),
@@ -60746,7 +61612,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     freebsd: constant(freebsd)
   };
 
-  function DeviceType (os, browser, userAgent) {
+  var DeviceType = function (os, browser, userAgent) {
     var isiPad = os.isiOS() && /ipad/i.test(userAgent) === true;
     var isiPhone = os.isiOS() && !isiPad;
     var isAndroid3 = os.isAndroid() && os.version.major === 3;
@@ -60765,7 +61631,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       isiOS: os.isiOS,
       isWebView: constant(iOSwebview)
     };
-  }
+  };
 
   var detect$1 = function (candidates, userAgent) {
     var agent = String(userAgent).toLowerCase();
@@ -60775,7 +61641,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var detectBrowser = function (browsers, userAgent) {
     return detect$1(browsers, userAgent).map(function (browser) {
-      var version = $_380fo9sjm0ofu54.detect(browser.versionRegexes, userAgent);
+      var version = Version.detect(browser.versionRegexes, userAgent);
       return {
         current: browser.name,
         version: version
@@ -60784,14 +61650,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var detectOs = function (oses, userAgent) {
     return detect$1(oses, userAgent).map(function (os) {
-      var version = $_380fo9sjm0ofu54.detect(os.versionRegexes, userAgent);
+      var version = Version.detect(os.versionRegexes, userAgent);
       return {
         current: os.name,
         version: version
       };
     });
   };
-  var $_7qvo2uvjm0ofu5g = {
+  var UaString = {
     detectBrowser: detectBrowser,
     detectOs: detectOs
   };
@@ -60908,16 +61774,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       versionRegexes: []
     }
   ];
-  var $_9whmv7wjm0ofu5n = {
+  var PlatformInfo = {
     browsers: constant(browsers),
     oses: constant(oses)
   };
 
   var detect$2 = function (userAgent) {
-    var browsers = $_9whmv7wjm0ofu5n.browsers();
-    var oses = $_9whmv7wjm0ofu5n.oses();
-    var browser = $_7qvo2uvjm0ofu5g.detectBrowser(browsers, userAgent).fold($_frkkrjm0ofu4z.unknown, $_frkkrjm0ofu4z.nu);
-    var os = $_7qvo2uvjm0ofu5g.detectOs(oses, userAgent).fold($_fkn0ntjm0ofu56.unknown, $_fkn0ntjm0ofu56.nu);
+    var browsers = PlatformInfo.browsers();
+    var oses = PlatformInfo.oses();
+    var browser = UaString.detectBrowser(browsers, userAgent).fold(Browser.unknown, Browser.nu);
+    var os = UaString.detectOs(oses, userAgent).fold(OperatingSystem.unknown, OperatingSystem.nu);
     var deviceType = DeviceType(os, browser, userAgent);
     return {
       browser: browser,
@@ -60925,13 +61791,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       deviceType: deviceType
     };
   };
-  var $_9jaw8rqjm0ofu4y = { detect: detect$2 };
+  var PlatformDetection = { detect: detect$2 };
 
   var detect$3 = cached(function () {
     var userAgent = navigator.userAgent;
-    return $_9jaw8rqjm0ofu4y.detect(userAgent);
+    return PlatformDetection.detect(userAgent);
   });
-  var $_4i10pfojm0ofu4r = { detect: detect$3 };
+  var $_766rx4ojnlpawtd = { detect: detect$3 };
 
   var fromHtml = function (html, scope) {
     var doc = scope || document;
@@ -60970,7 +61836,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     fromPoint: fromPoint
   };
 
-  var $_2x0juh12jm0ofu9w = {
+  var $_8b12q912jnlpawv7 = {
     ATTRIBUTE: Node.ATTRIBUTE_NODE,
     CDATA_SECTION: Node.CDATA_SECTION_NODE,
     COMMENT: Node.COMMENT_NODE,
@@ -61001,12 +61867,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
   var isComment = function (element) {
-    return type(element) === $_2x0juh12jm0ofu9w.COMMENT || name(element) === '#comment';
+    return type(element) === $_8b12q912jnlpawv7.COMMENT || name(element) === '#comment';
   };
-  var isElement = isType$1($_2x0juh12jm0ofu9w.ELEMENT);
-  var isText = isType$1($_2x0juh12jm0ofu9w.TEXT);
-  var isDocument = isType$1($_2x0juh12jm0ofu9w.DOCUMENT);
-  var $_byto2911jm0ofu9v = {
+  var isElement = isType$1($_8b12q912jnlpawv7.ELEMENT);
+  var isText = isType$1($_8b12q912jnlpawv7.TEXT);
+  var isDocument = isType$1($_8b12q912jnlpawv7.DOCUMENT);
+  var $_7u5fzs11jnlpawv6 = {
     name: name,
     type: type,
     value: value,
@@ -61017,6 +61883,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var keys = Object.keys;
+
   var each$3 = function (obj, f) {
     var props = keys(obj);
     for (var k = 0, len = props.length; k < len; k++) {
@@ -61071,11 +61938,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       rawSet(dom, k, v);
     });
   };
-  var get = function (element, key) {
+  var get$1 = function (element, key) {
     var v = element.dom().getAttribute(key);
     return v === null ? undefined : v;
   };
-  var has = function (element, key) {
+  var has$1 = function (element, key) {
     var dom = element.dom();
     return dom && dom.hasAttribute ? dom.hasAttribute(key) : false;
   };
@@ -61093,29 +61960,29 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }, {});
   };
   var transferOne = function (source, destination, attr) {
-    if (has(source, attr) && !has(destination, attr))
-      set(destination, attr, get(source, attr));
+    if (has$1(source, attr) && !has$1(destination, attr))
+      set(destination, attr, get$1(source, attr));
   };
   var transfer = function (source, destination, attrs) {
-    if (!$_byto2911jm0ofu9v.isElement(source) || !$_byto2911jm0ofu9v.isElement(destination))
+    if (!$_7u5fzs11jnlpawv6.isElement(source) || !$_7u5fzs11jnlpawv6.isElement(destination))
       return;
     each(attrs, function (attr) {
       transferOne(source, destination, attr);
     });
   };
-  var $_cgh0m015jm0ofuao = {
+  var $_521j8z15jnlpawz7 = {
     clone: clone,
     set: set,
     setAll: setAll,
-    get: get,
-    has: has,
+    get: get$1,
+    has: has$1,
     remove: remove,
     hasNone: hasNone,
     transfer: transfer
   };
 
   var inBody = function (element) {
-    var dom = $_byto2911jm0ofu9v.isText(element) ? element.dom().parentNode : element.dom();
+    var dom = $_7u5fzs11jnlpawv6.isText(element) ? element.dom().parentNode : element.dom();
     return dom !== undefined && dom !== null && dom.ownerDocument.body.contains(dom);
   };
   var body = cached(function () {
@@ -61127,7 +61994,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       throw 'Body is not available yet';
     return Element$$1.fromDom(body);
   };
-  var $_e74aah16jm0ofuaz = {
+  var $_1lsags16jnlpawzj = {
     body: body,
     getBody: getBody,
     inBody: inBody
@@ -61136,18 +62003,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isSupported = function (dom) {
     return dom.style !== undefined;
   };
-  var $_bc5pld17jm0ofub4 = { isSupported: isSupported };
+  var $_1z4orl17jnlpawzp = { isSupported: isSupported };
 
   var internalSet = function (dom, property, value) {
     if (!isString(value)) {
       console.error('Invalid call to CSS.set. Property ', property, ':: Value ', value, ':: Element ', dom);
       throw new Error('CSS value must be a string: ' + value);
     }
-    if ($_bc5pld17jm0ofub4.isSupported(dom))
+    if ($_1z4orl17jnlpawzp.isSupported(dom))
       dom.style.setProperty(property, value);
   };
   var internalRemove = function (dom, property) {
-    if ($_bc5pld17jm0ofub4.isSupported(dom))
+    if ($_1z4orl17jnlpawzp.isSupported(dom))
       dom.style.removeProperty(property);
   };
   var set$1 = function (element, property, value) {
@@ -61170,15 +62037,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     });
   };
-  var get$1 = function (element, property) {
+  var get$2 = function (element, property) {
     var dom = element.dom();
     var styles = window.getComputedStyle(dom);
     var r = styles.getPropertyValue(property);
-    var v = r === '' && !$_e74aah16jm0ofuaz.inBody(element) ? getUnsafeProperty(dom, property) : r;
+    var v = r === '' && !$_1lsags16jnlpawzj.inBody(element) ? getUnsafeProperty(dom, property) : r;
     return v === null ? undefined : v;
   };
   var getUnsafeProperty = function (dom, property) {
-    return $_bc5pld17jm0ofub4.isSupported(dom) ? dom.style.getPropertyValue(property) : '';
+    return $_1z4orl17jnlpawzp.isSupported(dom) ? dom.style.getPropertyValue(property) : '';
   };
   var getRaw = function (element, property) {
     var dom = element.dom();
@@ -61190,7 +62057,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getAllRaw = function (element) {
     var css = {};
     var dom = element.dom();
-    if ($_bc5pld17jm0ofub4.isSupported(dom)) {
+    if ($_1z4orl17jnlpawzp.isSupported(dom)) {
       for (var i = 0; i < dom.style.length; i++) {
         var ruleName = dom.style.item(i);
         css[ruleName] = dom.style[ruleName];
@@ -61207,21 +62074,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var remove$1 = function (element, property) {
     var dom = element.dom();
     internalRemove(dom, property);
-    if ($_cgh0m015jm0ofuao.has(element, 'style') && trim$2($_cgh0m015jm0ofuao.get(element, 'style')) === '') {
-      $_cgh0m015jm0ofuao.remove(element, 'style');
+    if ($_521j8z15jnlpawz7.has(element, 'style') && trim$2($_521j8z15jnlpawz7.get(element, 'style')) === '') {
+      $_521j8z15jnlpawz7.remove(element, 'style');
     }
   };
   var preserve = function (element, f) {
-    var oldStyles = $_cgh0m015jm0ofuao.get(element, 'style');
+    var oldStyles = $_521j8z15jnlpawz7.get(element, 'style');
     var result = f(element);
-    var restore = oldStyles === undefined ? $_cgh0m015jm0ofuao.remove : $_cgh0m015jm0ofuao.set;
+    var restore = oldStyles === undefined ? $_521j8z15jnlpawz7.remove : $_521j8z15jnlpawz7.set;
     restore(element, 'style', oldStyles);
     return result;
   };
   var copy = function (source, target) {
     var sourceDom = source.dom();
     var targetDom = target.dom();
-    if ($_bc5pld17jm0ofub4.isSupported(sourceDom) && $_bc5pld17jm0ofub4.isSupported(targetDom)) {
+    if ($_1z4orl17jnlpawzp.isSupported(sourceDom) && $_1z4orl17jnlpawzp.isSupported(targetDom)) {
       targetDom.style.cssText = sourceDom.style.cssText;
     }
   };
@@ -61235,20 +62102,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var transfer$1 = function (source, destination, styles) {
-    if (!$_byto2911jm0ofu9v.isElement(source) || !$_byto2911jm0ofu9v.isElement(destination))
+    if (!$_7u5fzs11jnlpawv6.isElement(source) || !$_7u5fzs11jnlpawv6.isElement(destination))
       return;
     each(styles, function (style) {
       transferOne$1(source, destination, style);
     });
   };
-  var $_g5cuhh13jm0ofua1 = {
+  var $_asiuhf13jnlpawvc = {
     copy: copy,
     set: set$1,
     preserve: preserve,
     setAll: setAll$1,
     setOptions: setOptions,
     remove: remove$1,
-    get: get$1,
+    get: get$2,
     getRaw: getRaw,
     getAllRaw: getAllRaw,
     isValidValue: isValidValue,
@@ -61289,10 +62156,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     } while (cur.isSome());
     return r;
   };
-  var $_fgd6w71djm0ofuc7 = { toArray: toArray$1 };
+  var $_arqw5m1djnlpax0i = { toArray: toArray$1 };
 
   var node = function () {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('Node');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('Node');
     return f;
   };
   var compareDocumentPosition = function (a, b, match) {
@@ -61304,13 +62171,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var documentPositionContainedBy = function (a, b) {
     return compareDocumentPosition(a, b, node().DOCUMENT_POSITION_CONTAINED_BY);
   };
-  var $_9fp631fjm0ofucl = {
+  var $_eo508y1fjnlpax0w = {
     documentPositionPreceding: documentPositionPreceding,
     documentPositionContainedBy: documentPositionContainedBy
   };
 
-  var ELEMENT = $_2x0juh12jm0ofu9w.ELEMENT;
-  var DOCUMENT = $_2x0juh12jm0ofu9w.DOCUMENT;
+  var ELEMENT = $_8b12q912jnlpawv7.ELEMENT;
+  var DOCUMENT = $_8b12q912jnlpawv7.DOCUMENT;
   var is$1 = function (element, selector) {
     var elem = element.dom();
     if (elem.nodeType !== ELEMENT)
@@ -61337,7 +62204,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var base = scope === undefined ? document : scope.dom();
     return bypassSelector(base) ? Option.none() : Option.from(base.querySelector(selector)).map(Element$$1.fromDom);
   };
-  var $_bdu7ul1gjm0ofucn = {
+  var $_d8v5lf1gjnlpax0y = {
     all: all,
     is: is$1,
     one: one
@@ -61357,16 +62224,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return d1 === d2 ? false : d1.contains(d2);
   };
   var ieContains = function (e1, e2) {
-    return $_9fp631fjm0ofucl.documentPositionContainedBy(e1.dom(), e2.dom());
+    return $_eo508y1fjnlpax0w.documentPositionContainedBy(e1.dom(), e2.dom());
   };
-  var browser = $_4i10pfojm0ofu4r.detect().browser;
+  var browser = $_766rx4ojnlpawtd.detect().browser;
   var contains$3 = browser.isIE() ? ieContains : regularContains;
-  var $_ag822a1ejm0ofuc8 = {
+  var $_5h7cor1ejnlpax0k = {
     eq: eq,
     isEqualNode: isEqualNode,
     member: member,
     contains: contains$3,
-    is: $_bdu7ul1gjm0ofucn.is
+    is: $_d8v5lf1gjnlpax0y.is
   };
 
   var owner = function (element) {
@@ -61388,7 +62255,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return parent(element).bind(function (p) {
       var kin = children(p);
       return findIndex(kin, function (elem) {
-        return $_ag822a1ejm0ofuc8.eq(element, elem);
+        return $_5h7cor1ejnlpax0k.eq(element, elem);
       });
     });
   };
@@ -61410,7 +62277,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var siblings = function (element) {
     var filterSelf = function (elements) {
       return filter(elements, function (x) {
-        return !$_ag822a1ejm0ofuc8.eq(element, x);
+        return !$_5h7cor1ejnlpax0k.eq(element, x);
       });
     };
     return parent(element).map(children).map(filterSelf).getOr([]);
@@ -61428,10 +62295,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return Option.from(dom.nextSibling).map(Element$$1.fromDom);
   };
   var prevSiblings = function (element) {
-    return reverse($_fgd6w71djm0ofuc7.toArray(element, prevSibling));
+    return reverse($_arqw5m1djnlpax0i.toArray(element, prevSibling));
   };
   var nextSiblings = function (element) {
-    return $_fgd6w71djm0ofuc7.toArray(element, nextSibling);
+    return $_arqw5m1djnlpax0i.toArray(element, nextSibling);
   };
   var children = function (element) {
     var dom = element.dom();
@@ -61458,7 +62325,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var cs = children(element);
     return cs.length > 0 && offset < cs.length ? spot(cs[offset], 0) : spot(element, offset);
   };
-  var $_8mvo7w18jm0ofub9 = {
+  var $_dr4ybh18jnlpawzt = {
     owner: owner,
     defaultView: defaultView,
     documentElement: documentElement,
@@ -61480,16 +62347,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     leaf: leaf
   };
 
-  var browser$1 = $_4i10pfojm0ofu4r.detect().browser;
+  var browser$1 = $_766rx4ojnlpawtd.detect().browser;
   var firstElement = function (nodes) {
-    return find(nodes, $_byto2911jm0ofu9v.isElement);
+    return find(nodes, $_7u5fzs11jnlpawv6.isElement);
   };
   var getTableCaptionDeltaY = function (elm) {
-    if (browser$1.isFirefox() && $_byto2911jm0ofu9v.name(elm) === 'table') {
-      return firstElement($_8mvo7w18jm0ofub9.children(elm)).filter(function (elm) {
-        return $_byto2911jm0ofu9v.name(elm) === 'caption';
+    if (browser$1.isFirefox() && $_7u5fzs11jnlpawv6.name(elm) === 'table') {
+      return firstElement($_dr4ybh18jnlpawzt.children(elm)).filter(function (elm) {
+        return $_7u5fzs11jnlpawv6.name(elm) === 'caption';
       }).bind(function (caption) {
-        return firstElement($_8mvo7w18jm0ofub9.nextSiblings(caption)).map(function (body) {
+        return firstElement($_dr4ybh18jnlpawzt.nextSiblings(caption)).map(function (body) {
           var bodyTop = body.dom().offsetTop;
           var captionTop = caption.dom().offsetTop;
           var captionHeight = caption.dom().offsetHeight;
@@ -61506,7 +62373,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var pos;
     rootElm = rootElm ? rootElm : body;
     if (elm) {
-      if (rootElm === body && elm.getBoundingClientRect && $_g5cuhh13jm0ofua1.get(Element$$1.fromDom(body), 'position') === 'static') {
+      if (rootElm === body && elm.getBoundingClientRect && $_asiuhf13jnlpawvc.get(Element$$1.fromDom(body), 'position') === 'static') {
         pos = elm.getBoundingClientRect();
         x = pos.left + (doc.documentElement.scrollLeft || body.scrollLeft) - doc.documentElement.clientLeft;
         y = pos.top + (doc.documentElement.scrollTop || body.scrollTop) - doc.documentElement.clientTop;
@@ -61534,7 +62401,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       y: y
     };
   };
-  var $_ce2bnbnjm0ofu4d = { getPos: getPos };
+  var $_9kqe0nnjnlpawsp = { getPos: getPos };
 
   var nu$3 = function (baseFn) {
     var data = Option.none();
@@ -61816,7 +62683,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var wait = function (testCallback, waitCallback) {
         if (!testCallback()) {
           if (new Date().getTime() - startTime < maxLoadTime) {
-            $_4oxubkijm0ofu12.setTimeout(waitCallback);
+            $_2nbnh1ijnlpawpi.setTimeout(waitCallback);
           } else {
             failed();
           }
@@ -61846,7 +62713,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           }
         }, waitForGeckoLinkLoaded);
       };
-      url = $_cvczchljm0ofu3z._addCacheSuffix(url);
+      url = $_1q1txeljnlpawsa._addCacheSuffix(url);
       if (!loadedStates[url]) {
         state = {
           passed: [],
@@ -61880,6 +62747,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       link.id = 'u' + idCount++;
       link.async = false;
       link.defer = false;
+      link.crossOrigin = 'anonymous';
       startTime = new Date().getTime();
       if ('onload' in link && !isOldWebKit()) {
         link.onload = waitForWebKitLinkLoaded;
@@ -62117,16 +62985,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var lookup;
     return function (node) {
       lookup = lookup ? lookup : mapToObject(items, constant(true));
-      return lookup.hasOwnProperty($_byto2911jm0ofu9v.name(node));
+      return lookup.hasOwnProperty($_7u5fzs11jnlpawv6.name(node));
     };
   };
   var isHeading = lazyLookup(headings);
   var isBlock = lazyLookup(blocks);
   var isInline = function (node) {
-    return $_byto2911jm0ofu9v.isElement(node) && !isBlock(node);
+    return $_7u5fzs11jnlpawv6.isElement(node) && !isBlock(node);
   };
   var isBr = function (node) {
-    return $_byto2911jm0ofu9v.isElement(node) && $_byto2911jm0ofu9v.name(node) === 'br';
+    return $_7u5fzs11jnlpawv6.isElement(node) && $_7u5fzs11jnlpawv6.name(node) === 'br';
   };
   var isTextBlock = lazyLookup(textBlocks);
   var isList = lazyLookup(lists);
@@ -62216,7 +63084,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isBr$1 = matchNodeNames('br');
   var isContentEditableTrue = hasContentEditableState('true');
   var isContentEditableFalse = hasContentEditableState('false');
-  var $_2oph0b1rjm0ofuee = {
+  var $_fy28ei1rjnlpax2o = {
     isText: isText$1,
     isElement: isElement$1,
     isComment: isComment$1,
@@ -62244,22 +63112,22 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var trimNode = function (dom, node) {
     var i, children = node.childNodes;
-    if ($_2oph0b1rjm0ofuee.isElement(node) && isBookmarkNode(node)) {
+    if ($_fy28ei1rjnlpax2o.isElement(node) && isBookmarkNode(node)) {
       return;
     }
     for (i = children.length - 1; i >= 0; i--) {
       trimNode(dom, children[i]);
     }
-    if ($_2oph0b1rjm0ofuee.isDocument(node) === false) {
-      if ($_2oph0b1rjm0ofuee.isText(node) && node.nodeValue.length > 0) {
-        var trimmedLength = $_cvczchljm0ofu3z.trim(node.nodeValue).length;
+    if ($_fy28ei1rjnlpax2o.isDocument(node) === false) {
+      if ($_fy28ei1rjnlpax2o.isText(node) && node.nodeValue.length > 0) {
+        var trimmedLength = $_1q1txeljnlpawsa.trim(node.nodeValue).length;
         if (dom.isBlock(node.parentNode) || trimmedLength > 0) {
           return;
         }
         if (trimmedLength === 0 && surroundedBySpans(node)) {
           return;
         }
-      } else if ($_2oph0b1rjm0ofuee.isElement(node)) {
+      } else if ($_fy28ei1rjnlpax2o.isElement(node)) {
         children = node.childNodes;
         if (children.length === 1 && isBookmarkNode(children[0])) {
           node.parentNode.insertBefore(children[0], node);
@@ -62272,9 +63140,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return node;
   };
-  var $_fsx3kx1pjm0ofudr = { trimNode: trimNode };
+  var $_7nxzh21pjnlpax26 = { trimNode: trimNode };
 
-  var makeMap$1 = $_cvczchljm0ofu3z.makeMap;
+  var makeMap$1 = $_1q1txeljnlpawsa.makeMap;
   var namedEntities;
   var baseEntities;
   var reverseEntities;
@@ -62425,7 +63293,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return reverseEntities[all] || namedEntities[all] || nativeDecode(all);
     });
   };
-  var $_7ruegc1sjm0ofuek = {
+  var $_bea7j51sjnlpax2u = {
     encodeRaw: encodeRaw,
     encodeAllRaw: encodeAllRaw,
     encodeNumeric: encodeNumeric,
@@ -62436,13 +63304,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var mapCache = {};
   var dummyObj = {};
-  var makeMap$2 = $_cvczchljm0ofu3z.makeMap;
-  var each$4 = $_cvczchljm0ofu3z.each;
-  var extend$1 = $_cvczchljm0ofu3z.extend;
-  var explode$1 = $_cvczchljm0ofu3z.explode;
-  var inArray$1 = $_cvczchljm0ofu3z.inArray;
+  var makeMap$2 = $_1q1txeljnlpawsa.makeMap;
+  var each$4 = $_1q1txeljnlpawsa.each;
+  var extend$1 = $_1q1txeljnlpawsa.extend;
+  var explode$1 = $_1q1txeljnlpawsa.explode;
+  var inArray$1 = $_1q1txeljnlpawsa.inArray;
   var split = function (items, delim) {
-    items = $_cvczchljm0ofu3z.trim(items);
+    items = $_1q1txeljnlpawsa.trim(items);
     return items ? items.split(delim || ' ') : [];
   };
   var compileSchema = function (type) {
@@ -62500,7 +63368,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     phrasingContent = 'a abbr b bdo br button cite code del dfn em embed i iframe img input ins kbd ' + 'label map noscript object q s samp script select small span strong sub sup ' + 'textarea u var #text #comment';
     if (type !== 'html4') {
       globalAttributes += ' contenteditable contextmenu draggable dropzone ' + 'hidden spellcheck translate';
-      blockContent += ' article aside details dialog figure header footer hgroup section nav';
+      blockContent += ' article aside details dialog figure main header footer hgroup section nav';
       phrasingContent += ' audio canvas command datalist mark meter output picture ' + 'progress time wbr video ruby bdi keygen';
     }
     if (type !== 'html5-strict') {
@@ -62610,7 +63478,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         phrasingContent,
         'option'
       ].join(' '));
-      add('article section nav aside header footer', '', flowContent);
+      add('article section nav aside main header footer', '', flowContent);
       add('hgroup', '', 'h1 h2 h3 h4 h5 h6');
       add('figure', '', [
         flowContent,
@@ -62731,7 +63599,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     boolAttrMap = createLookupTable('boolean_attributes', 'checked compact declare defer disabled ismap multiple nohref noresize ' + 'noshade nowrap readonly selected autoplay loop controls');
     nonEmptyElementsMap = createLookupTable('non_empty_elements', 'td th iframe video audio object ' + 'script pre code', shortEndedElementsMap);
     moveCaretBeforeOnEnterElementsMap = createLookupTable('move_caret_before_on_enter_elements', 'table', nonEmptyElementsMap);
-    textBlockElementsMap = createLookupTable('text_block_elements', 'h1 h2 h3 h4 h5 h6 p div address pre form ' + 'blockquote center dir fieldset header footer article section hgroup aside nav figure');
+    textBlockElementsMap = createLookupTable('text_block_elements', 'h1 h2 h3 h4 h5 h6 p div address pre form ' + 'blockquote center dir fieldset header footer article section hgroup aside main nav figure');
     blockElementsMap = createLookupTable('block_elements', 'hr table tbody thead tfoot ' + 'th tr td li ol ul caption dl dt dd noscript menu isindex option ' + 'datalist select optgroup figcaption details summary', textBlockElementsMap);
     textInlineElementsMap = createLookupTable('text_inline_elements', 'span strong b em i font strike u var cite ' + 'dfn code mark q sup sub samp');
     each$4((settings.special || 'script noscript noframes noembed title style textarea xmp').split(' '), function (name) {
@@ -63315,9 +64183,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   }
 
-  var each$5 = $_cvczchljm0ofu3z.each;
-  var grep$1 = $_cvczchljm0ofu3z.grep;
-  var isIE = $_emqeydajm0oftwm.ie;
+  var each$5 = $_1q1txeljnlpawsa.each;
+  var grep$1 = $_1q1txeljnlpawsa.grep;
+  var isIE = $_cseqobajnlpawll.ie;
   var simpleSelectorRe = /^([a-z0-9],?)+$/i;
   var whiteSpaceRegExp$2 = /^[ \t\r\n]*$/;
   var setupAttrHooks = function (styles, settings, getContext) {
@@ -63512,7 +64380,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       };
     };
     var getPos = function (elm, rootElm) {
-      return $_ce2bnbnjm0ofu4d.getPos(doc.body, get(elm), rootElm);
+      return $_9kqe0nnjnlpawsp.getPos(doc.body, get(elm), rootElm);
     };
     var setStyle = function (elm, name$$1, value) {
       var $elm = $$(elm).css(name$$1, value);
@@ -63535,7 +64403,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         return b.toUpperCase();
       });
       if (name$$1 === 'float') {
-        name$$1 = $_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 12 ? 'styleFloat' : 'cssFloat';
+        name$$1 = $_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 12 ? 'styleFloat' : 'cssFloat';
       }
       return $elm[0] && $elm[0].style ? $elm[0].style[name$$1] : undefined;
     };
@@ -63599,7 +64467,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var node = get(elm);
       collect = collect === undefined;
       root = root || (getRoot().nodeName !== 'BODY' ? getRoot().parentNode : null);
-      if ($_cvczchljm0ofu3z.is(selector, 'string')) {
+      if ($_1q1txeljnlpawsa.is(selector, 'string')) {
         selectorVal = selector;
         if (selector === '*') {
           selector = function (node) {
@@ -63661,7 +64529,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!node) {
         return false;
       }
-      if ($_cvczchljm0ofu3z.isArray(node) && (node.length || node.length === 0)) {
+      if ($_1q1txeljnlpawsa.isArray(node) && (node.length || node.length === 0)) {
         result = [];
         each$5(node, function (elm, i) {
           if (elm) {
@@ -63722,8 +64590,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var create = function (name$$1, attrs, html) {
       return add(doc.createElement(name$$1), name$$1, attrs, html, true);
     };
-    var decode = $_7ruegc1sjm0ofuek.decode;
-    var encode = $_7ruegc1sjm0ofuek.encodeAllRaw;
+    var decode = $_bea7j51sjnlpax2u.decode;
+    var encode = $_bea7j51sjnlpax2u.encodeAllRaw;
     var createHTML = function (name$$1, attrs, html) {
       var outHtml = '', key;
       outHtml += '<' + name$$1;
@@ -63820,7 +64688,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       head = doc.getElementsByTagName('head')[0];
       each$5(url.split(','), function (url) {
         var link;
-        url = $_cvczchljm0ofu3z._addCacheSuffix(url);
+        url = $_1q1txeljnlpawsa._addCacheSuffix(url);
         if (files[url]) {
           return;
         }
@@ -63862,7 +64730,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var getOuterHTML = function (elm) {
       var node = typeof elm === 'string' ? get(elm) : elm;
-      return $_2oph0b1rjm0ofuee.isElement(node) ? node.outerHTML : DomQuery('<div></div>').append(DomQuery(node).clone()).html();
+      return $_fy28ei1rjnlpax2o.isElement(node) ? node.outerHTML : DomQuery('<div></div>').append(DomQuery(node).clone()).html();
     };
     var setOuterHTML = function (elm, html) {
       $$(elm).each(function () {
@@ -63892,7 +64760,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var replace = function (newElm, oldElm, keepChildren) {
       return run(oldElm, function (oldElm) {
-        if ($_cvczchljm0ofu3z.is(oldElm, 'array')) {
+        if ($_1q1txeljnlpawsa.is(oldElm, 'array')) {
           newElm = newElm.cloneNode(true);
         }
         if (keepChildren) {
@@ -63932,7 +64800,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return ps;
     };
     var toHex = function (rgbVal) {
-      return styles.toHex($_cvczchljm0ofu3z.trim(rgbVal));
+      return styles.toHex($_1q1txeljnlpawsa.trim(rgbVal));
     };
     var isEmpty = function (node, elements) {
       var i, attributes, type, whitespace, walker, name$$1, brCount = 0;
@@ -63943,7 +64811,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         whitespace = schema ? schema.getWhiteSpaceElements() : {};
         do {
           type = node.nodeType;
-          if ($_2oph0b1rjm0ofuee.isElement(node)) {
+          if ($_fy28ei1rjnlpax2o.isElement(node)) {
             var bogusVal = node.getAttribute('data-mce-bogus');
             if (bogusVal) {
               node = walker.next(bogusVal === 'all');
@@ -63995,19 +64863,19 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         r.setEnd(parentElm.parentNode, findNodeIndex(parentElm) + 1);
         aft = r.extractContents();
         pa = parentElm.parentNode;
-        pa.insertBefore($_fsx3kx1pjm0ofudr.trimNode(self$$1, bef), parentElm);
+        pa.insertBefore($_7nxzh21pjnlpax26.trimNode(self$$1, bef), parentElm);
         if (replacementElm) {
           pa.insertBefore(replacementElm, parentElm);
         } else {
           pa.insertBefore(splitElm, parentElm);
         }
-        pa.insertBefore($_fsx3kx1pjm0ofudr.trimNode(self$$1, aft), parentElm);
+        pa.insertBefore($_7nxzh21pjnlpax26.trimNode(self$$1, aft), parentElm);
         remove(parentElm);
         return replacementElm || splitElm;
       }
     };
     var bind = function (target, name$$1, func, scope) {
-      if ($_cvczchljm0ofu3z.isArray(target)) {
+      if ($_1q1txeljnlpawsa.isArray(target)) {
         var i = target.length;
         while (i--) {
           target[i] = bind(target[i], name$$1, func, scope);
@@ -64026,7 +64894,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var unbind = function (target, name$$1, func) {
       var i;
-      if ($_cvczchljm0ofu3z.isArray(target)) {
+      if ($_1q1txeljnlpawsa.isArray(target)) {
         i = target.length;
         while (i--) {
           target[i] = unbind(target[i], name$$1, func);
@@ -64048,7 +64916,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return events.fire(target, name$$1, evt);
     };
     var getContentEditable = function (node) {
-      if (node && $_2oph0b1rjm0ofuee.isElement(node)) {
+      if (node && $_fy28ei1rjnlpax2o.isElement(node)) {
         var contentEditable = node.getAttribute('data-mce-contenteditable');
         if (contentEditable && contentEditable !== 'inherit') {
           return contentEditable;
@@ -64183,8 +65051,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var DOMUtils$1 = DOMUtils;
 
   var DOM = DOMUtils$1.DOM;
-  var each$6 = $_cvczchljm0ofu3z.each;
-  var grep$2 = $_cvczchljm0ofu3z.grep;
+  var each$6 = $_1q1txeljnlpawsa.each;
+  var grep$2 = $_1q1txeljnlpawsa.grep;
   var isFunction$1 = function (f) {
     return typeof f === 'function';
   };
@@ -64221,7 +65089,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       elm = document.createElement('script');
       elm.id = id;
       elm.type = 'text/javascript';
-      elm.src = $_cvczchljm0ofu3z._addCacheSuffix(url);
+      elm.src = $_1q1txeljnlpawsa._addCacheSuffix(url);
       elm.onload = done;
       elm.onerror = error;
       (document.getElementsByTagName('head')[0] || document.body).appendChild(elm);
@@ -64322,7 +65190,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   ScriptLoader.ScriptLoader = new ScriptLoader();
 
-  var each$7 = $_cvczchljm0ofu3z.each;
+  var each$7 = $_1q1txeljnlpawsa.each;
   function AddOnManager() {
     var _this = this;
     var items = [];
@@ -64458,15 +65326,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }(AddOnManager || (AddOnManager = {})));
 
   var before = function (marker, element) {
-    var parent = $_8mvo7w18jm0ofub9.parent(marker);
+    var parent = $_dr4ybh18jnlpawzt.parent(marker);
     parent.each(function (v) {
       v.dom().insertBefore(element.dom(), marker.dom());
     });
   };
   var after = function (marker, element) {
-    var sibling = $_8mvo7w18jm0ofub9.nextSibling(marker);
+    var sibling = $_dr4ybh18jnlpawzt.nextSibling(marker);
     sibling.fold(function () {
-      var parent = $_8mvo7w18jm0ofub9.parent(marker);
+      var parent = $_dr4ybh18jnlpawzt.parent(marker);
       parent.each(function (v) {
         append(v, element);
       });
@@ -64475,7 +65343,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var prepend = function (parent, element) {
-    var firstChild = $_8mvo7w18jm0ofub9.firstChild(parent);
+    var firstChild = $_dr4ybh18jnlpawzt.firstChild(parent);
     firstChild.fold(function () {
       append(parent, element);
     }, function (v) {
@@ -64486,7 +65354,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     parent.dom().appendChild(element.dom());
   };
   var appendAt = function (parent, element, index) {
-    $_8mvo7w18jm0ofub9.child(parent, index).fold(function () {
+    $_dr4ybh18jnlpawzt.child(parent, index).fold(function () {
       append(parent, element);
     }, function (v) {
       before(v, element);
@@ -64496,7 +65364,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     before(element, wrapper);
     append(wrapper, element);
   };
-  var $_8gbbpa1yjm0ofugu = {
+  var $_ag89ax1yjnlpax4x = {
     before: before,
     after: after,
     prepend: prepend,
@@ -64507,26 +65375,26 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var before$1 = function (marker, elements) {
     each(elements, function (x) {
-      $_8gbbpa1yjm0ofugu.before(marker, x);
+      $_ag89ax1yjnlpax4x.before(marker, x);
     });
   };
   var after$1 = function (marker, elements) {
     each(elements, function (x, i) {
       var e = i === 0 ? marker : elements[i - 1];
-      $_8gbbpa1yjm0ofugu.after(e, x);
+      $_ag89ax1yjnlpax4x.after(e, x);
     });
   };
   var prepend$1 = function (parent, elements) {
     each(elements.slice().reverse(), function (x) {
-      $_8gbbpa1yjm0ofugu.prepend(parent, x);
+      $_ag89ax1yjnlpax4x.prepend(parent, x);
     });
   };
   var append$1 = function (parent, elements) {
     each(elements, function (x) {
-      $_8gbbpa1yjm0ofugu.append(parent, x);
+      $_ag89ax1yjnlpax4x.append(parent, x);
     });
   };
-  var $_43bojf1xjm0ofugp = {
+  var $_9vd3j51xjnlpax4s = {
     before: before$1,
     after: after$1,
     prepend: prepend$1,
@@ -64535,7 +65403,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var empty = function (element) {
     element.dom().textContent = '';
-    each($_8mvo7w18jm0ofub9.children(element), function (rogue) {
+    each($_dr4ybh18jnlpawzt.children(element), function (rogue) {
       remove$2(rogue);
     });
   };
@@ -64545,12 +65413,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       dom.parentNode.removeChild(dom);
   };
   var unwrap = function (wrapper) {
-    var children = $_8mvo7w18jm0ofub9.children(wrapper);
+    var children = $_dr4ybh18jnlpawzt.children(wrapper);
     if (children.length > 0)
-      $_43bojf1xjm0ofugp.before(wrapper, children);
+      $_9vd3j51xjnlpax4s.before(wrapper, children);
     remove$2(wrapper);
   };
-  var $_75npdb1wjm0ofugl = {
+  var $_azq8zm1wjnlpax4n = {
     empty: empty,
     remove: remove$2,
     unwrap: unwrap
@@ -64651,13 +65519,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }
 
   var read = function (element, attr) {
-    var value = $_cgh0m015jm0ofuao.get(element, attr);
+    var value = $_521j8z15jnlpawz7.get(element, attr);
     return value === undefined || value === '' ? [] : value.split(' ');
   };
   var add = function (element, attr, id) {
     var old = read(element, attr);
     var nu = old.concat([id]);
-    $_cgh0m015jm0ofuao.set(element, attr, nu.join(' '));
+    $_521j8z15jnlpawz7.set(element, attr, nu.join(' '));
     return true;
   };
   var remove$3 = function (element, attr, id) {
@@ -64665,12 +65533,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return v !== id;
     });
     if (nu.length > 0)
-      $_cgh0m015jm0ofuao.set(element, attr, nu.join(' '));
+      $_521j8z15jnlpawz7.set(element, attr, nu.join(' '));
     else
-      $_cgh0m015jm0ofuao.remove(element, attr);
+      $_521j8z15jnlpawz7.remove(element, attr);
     return false;
   };
-  var $_1ihdig26jm0ofui9 = {
+  var $_c7tpvt26jnlpax6a = {
     read: read,
     add: add,
     remove: remove$3
@@ -64679,24 +65547,24 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var supports = function (element) {
     return element.dom().classList !== undefined;
   };
-  var get$2 = function (element) {
-    return $_1ihdig26jm0ofui9.read(element, 'class');
+  var get$3 = function (element) {
+    return $_c7tpvt26jnlpax6a.read(element, 'class');
   };
   var add$1 = function (element, clazz) {
-    return $_1ihdig26jm0ofui9.add(element, 'class', clazz);
+    return $_c7tpvt26jnlpax6a.add(element, 'class', clazz);
   };
   var remove$4 = function (element, clazz) {
-    return $_1ihdig26jm0ofui9.remove(element, 'class', clazz);
+    return $_c7tpvt26jnlpax6a.remove(element, 'class', clazz);
   };
   var toggle = function (element, clazz) {
-    if (contains(get$2(element), clazz)) {
+    if (contains(get$3(element), clazz)) {
       return remove$4(element, clazz);
     } else {
       return add$1(element, clazz);
     }
   };
-  var $_e7jlpd25jm0ofui5 = {
-    get: get$2,
+  var $_2thj3d25jnlpax63 = {
+    get: get$3,
     add: add$1,
     remove: remove$4,
     toggle: toggle,
@@ -64704,71 +65572,71 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var add$2 = function (element, clazz) {
-    if ($_e7jlpd25jm0ofui5.supports(element))
+    if ($_2thj3d25jnlpax63.supports(element))
       element.dom().classList.add(clazz);
     else
-      $_e7jlpd25jm0ofui5.add(element, clazz);
+      $_2thj3d25jnlpax63.add(element, clazz);
   };
   var cleanClass = function (element) {
-    var classList = $_e7jlpd25jm0ofui5.supports(element) ? element.dom().classList : $_e7jlpd25jm0ofui5.get(element);
+    var classList = $_2thj3d25jnlpax63.supports(element) ? element.dom().classList : $_2thj3d25jnlpax63.get(element);
     if (classList.length === 0) {
-      $_cgh0m015jm0ofuao.remove(element, 'class');
+      $_521j8z15jnlpawz7.remove(element, 'class');
     }
   };
   var remove$5 = function (element, clazz) {
-    if ($_e7jlpd25jm0ofui5.supports(element)) {
+    if ($_2thj3d25jnlpax63.supports(element)) {
       var classList = element.dom().classList;
       classList.remove(clazz);
     } else
-      $_e7jlpd25jm0ofui5.remove(element, clazz);
+      $_2thj3d25jnlpax63.remove(element, clazz);
     cleanClass(element);
   };
   var toggle$1 = function (element, clazz) {
-    return $_e7jlpd25jm0ofui5.supports(element) ? element.dom().classList.toggle(clazz) : $_e7jlpd25jm0ofui5.toggle(element, clazz);
+    return $_2thj3d25jnlpax63.supports(element) ? element.dom().classList.toggle(clazz) : $_2thj3d25jnlpax63.toggle(element, clazz);
   };
   var toggler = function (element, clazz) {
-    var hasClasslist = $_e7jlpd25jm0ofui5.supports(element);
+    var hasClasslist = $_2thj3d25jnlpax63.supports(element);
     var classList = element.dom().classList;
     var off = function () {
       if (hasClasslist)
         classList.remove(clazz);
       else
-        $_e7jlpd25jm0ofui5.remove(element, clazz);
+        $_2thj3d25jnlpax63.remove(element, clazz);
     };
     var on = function () {
       if (hasClasslist)
         classList.add(clazz);
       else
-        $_e7jlpd25jm0ofui5.add(element, clazz);
+        $_2thj3d25jnlpax63.add(element, clazz);
     };
-    return Toggler(off, on, has$1(element, clazz));
+    return Toggler(off, on, has$2(element, clazz));
   };
-  var has$1 = function (element, clazz) {
-    return $_e7jlpd25jm0ofui5.supports(element) && element.dom().classList.contains(clazz);
+  var has$2 = function (element, clazz) {
+    return $_2thj3d25jnlpax63.supports(element) && element.dom().classList.contains(clazz);
   };
-  var $_h41qa23jm0ofui2 = {
+  var $_fes8i223jnlpax5z = {
     add: add$2,
     remove: remove$5,
     toggle: toggle$1,
     toggler: toggler,
-    has: has$1
+    has: has$2
   };
 
   var all$1 = function (predicate) {
-    return descendants($_e74aah16jm0ofuaz.body(), predicate);
+    return descendants($_1lsags16jnlpawzj.body(), predicate);
   };
   var ancestors = function (scope, predicate, isRoot) {
-    return filter($_8mvo7w18jm0ofub9.parents(scope, isRoot), predicate);
+    return filter($_dr4ybh18jnlpawzt.parents(scope, isRoot), predicate);
   };
   var siblings$1 = function (scope, predicate) {
-    return filter($_8mvo7w18jm0ofub9.siblings(scope), predicate);
+    return filter($_dr4ybh18jnlpawzt.siblings(scope), predicate);
   };
   var children$1 = function (scope, predicate) {
-    return filter($_8mvo7w18jm0ofub9.children(scope), predicate);
+    return filter($_dr4ybh18jnlpawzt.children(scope), predicate);
   };
   var descendants = function (scope, predicate) {
     var result = [];
-    each($_8mvo7w18jm0ofub9.children(scope), function (x) {
+    each($_dr4ybh18jnlpawzt.children(scope), function (x) {
       if (predicate(x)) {
         result = result.concat([x]);
       }
@@ -64776,7 +65644,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     return result;
   };
-  var $_5d66oh28jm0ofuie = {
+  var $_g370pf28jnlpax6n = {
     all: all$1,
     ancestors: ancestors,
     siblings: siblings$1,
@@ -64785,27 +65653,27 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var all$2 = function (selector) {
-    return $_bdu7ul1gjm0ofucn.all(selector);
+    return $_d8v5lf1gjnlpax0y.all(selector);
   };
   var ancestors$1 = function (scope, selector, isRoot) {
-    return $_5d66oh28jm0ofuie.ancestors(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_g370pf28jnlpax6n.ancestors(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     }, isRoot);
   };
   var siblings$2 = function (scope, selector) {
-    return $_5d66oh28jm0ofuie.siblings(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_g370pf28jnlpax6n.siblings(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     });
   };
   var children$2 = function (scope, selector) {
-    return $_5d66oh28jm0ofuie.children(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_g370pf28jnlpax6n.children(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     });
   };
   var descendants$1 = function (scope, selector) {
-    return $_bdu7ul1gjm0ofucn.all(selector, scope);
+    return $_d8v5lf1gjnlpax0y.all(selector, scope);
   };
-  var $_29u9y827jm0ofuid = {
+  var $_cmitir27jnlpax6e = {
     all: all$2,
     ancestors: ancestors$1,
     siblings: siblings$2,
@@ -64818,7 +65686,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }
 
   var first$2 = function (predicate) {
-    return descendant($_e74aah16jm0ofuaz.body(), predicate);
+    return descendant($_1lsags16jnlpawzj.body(), predicate);
   };
   var ancestor = function (scope, predicate, isRoot) {
     var element = scope.dom();
@@ -64844,7 +65712,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!element.parentNode)
       return Option.none();
     return child$1(Element$$1.fromDom(element.parentNode), function (x) {
-      return !$_ag822a1ejm0ofuc8.eq(scope, x) && predicate(x);
+      return !$_5h7cor1ejnlpax0k.eq(scope, x) && predicate(x);
     });
   };
   var child$1 = function (scope, predicate) {
@@ -64864,7 +65732,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     return descend(scope.dom());
   };
-  var $_6b07a32ajm0ofuil = {
+  var $_cs5qmd2ajnlpax6v = {
     first: first$2,
     ancestor: ancestor,
     closest: closest,
@@ -64874,30 +65742,30 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var first$3 = function (selector) {
-    return $_bdu7ul1gjm0ofucn.one(selector);
+    return $_d8v5lf1gjnlpax0y.one(selector);
   };
   var ancestor$1 = function (scope, selector, isRoot) {
-    return $_6b07a32ajm0ofuil.ancestor(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_cs5qmd2ajnlpax6v.ancestor(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     }, isRoot);
   };
   var sibling$2 = function (scope, selector) {
-    return $_6b07a32ajm0ofuil.sibling(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_cs5qmd2ajnlpax6v.sibling(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     });
   };
   var child$2 = function (scope, selector) {
-    return $_6b07a32ajm0ofuil.child(scope, function (e) {
-      return $_bdu7ul1gjm0ofucn.is(e, selector);
+    return $_cs5qmd2ajnlpax6v.child(scope, function (e) {
+      return $_d8v5lf1gjnlpax0y.is(e, selector);
     });
   };
   var descendant$1 = function (scope, selector) {
-    return $_bdu7ul1gjm0ofucn.one(selector, scope);
+    return $_d8v5lf1gjnlpax0y.one(selector, scope);
   };
   var closest$1 = function (scope, selector, isRoot) {
-    return ClosestOrAncestor($_bdu7ul1gjm0ofucn.is, ancestor$1, scope, selector, isRoot);
+    return ClosestOrAncestor($_d8v5lf1gjnlpax0y.is, ancestor$1, scope, selector, isRoot);
   };
-  var $_6nhfso29jm0ofuij = {
+  var $_2kbu29jnlpax6t = {
     first: first$3,
     ancestor: ancestor$1,
     sibling: sibling$2,
@@ -64919,13 +65787,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }, function (an) {
       return '[' + dataAnnotation() + '="' + an + '"]';
     });
-    var newStart = $_8mvo7w18jm0ofub9.child(start, rng.startOffset).getOr(start);
-    var closest = $_6nhfso29jm0ofuij.closest(newStart, selector, function (n) {
-      return $_ag822a1ejm0ofuc8.eq(n, root);
+    var newStart = $_dr4ybh18jnlpawzt.child(start, rng.startOffset).getOr(start);
+    var closest = $_2kbu29jnlpax6t.closest(newStart, selector, function (n) {
+      return $_5h7cor1ejnlpax0k.eq(n, root);
     });
     var getAttr = function (c, property) {
-      if ($_cgh0m015jm0ofuao.has(c, property)) {
-        return Option.some($_cgh0m015jm0ofuao.get(c, property));
+      if ($_521j8z15jnlpawz7.has(c, property)) {
+        return Option.some($_521j8z15jnlpawz7.get(c, property));
       } else {
         return Option.none();
       }
@@ -64944,18 +65812,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var isAnnotation = function (elem) {
-    return $_byto2911jm0ofu9v.isElement(elem) && $_h41qa23jm0ofui2.has(elem, annotation());
+    return $_7u5fzs11jnlpawv6.isElement(elem) && $_fes8i223jnlpax5z.has(elem, annotation());
   };
   var findMarkers = function (editor, uid) {
     var body = Element$$1.fromDom(editor.getBody());
-    return $_29u9y827jm0ofuid.descendants(body, '[' + dataAnnotationId() + '="' + uid + '"]');
+    return $_cmitir27jnlpax6e.descendants(body, '[' + dataAnnotationId() + '="' + uid + '"]');
   };
   var findAll = function (editor, name) {
     var body = Element$$1.fromDom(editor.getBody());
-    var markers = $_29u9y827jm0ofuid.descendants(body, '[' + dataAnnotation() + '="' + name + '"]');
+    var markers = $_cmitir27jnlpax6e.descendants(body, '[' + dataAnnotation() + '="' + name + '"]');
     var directory = {};
     each(markers, function (m) {
-      var uid = $_cgh0m015jm0ofuao.get(m, dataAnnotationId());
+      var uid = $_521j8z15jnlpawz7.get(m, dataAnnotationId());
       var nodesAlready = directory.hasOwnProperty(uid) ? directory[uid] : [];
       directory[uid] = nodesAlready.concat([m]);
     });
@@ -65092,27 +65960,27 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var add$3 = function (element, classes) {
     each(classes, function (x) {
-      $_h41qa23jm0ofui2.add(element, x);
+      $_fes8i223jnlpax5z.add(element, x);
     });
   };
   var remove$6 = function (element, classes) {
     each(classes, function (x) {
-      $_h41qa23jm0ofui2.remove(element, x);
+      $_fes8i223jnlpax5z.remove(element, x);
     });
   };
   var toggle$2 = function (element, classes) {
     each(classes, function (x) {
-      $_h41qa23jm0ofui2.toggle(element, x);
+      $_fes8i223jnlpax5z.toggle(element, x);
     });
   };
   var hasAll = function (element, classes) {
     return forall(classes, function (clazz) {
-      return $_h41qa23jm0ofui2.has(element, clazz);
+      return $_fes8i223jnlpax5z.has(element, clazz);
     });
   };
   var hasAny = function (element, classes) {
     return exists(classes, function (clazz) {
-      return $_h41qa23jm0ofui2.has(element, clazz);
+      return $_fes8i223jnlpax5z.has(element, clazz);
     });
   };
   var getNative = function (element) {
@@ -65123,16 +65991,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return r;
   };
-  var get$3 = function (element) {
-    return $_e7jlpd25jm0ofui5.supports(element) ? getNative(element) : $_e7jlpd25jm0ofui5.get(element);
+  var get$4 = function (element) {
+    return $_2thj3d25jnlpax63.supports(element) ? getNative(element) : $_2thj3d25jnlpax63.get(element);
   };
-  var $_8m07fy2hjm0ofuka = {
+  var $_6bet4b2hjnlpax8c = {
     add: add$3,
     remove: remove$6,
     toggle: toggle$2,
     hasAll: hasAll,
     hasAny: hasAny,
-    get: get$3
+    get: get$4
   };
 
   var clone$1 = function (original, deep) {
@@ -65146,30 +66014,80 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var shallowAs = function (original, tag) {
     var nu = Element$$1.fromTag(tag);
-    var attributes = $_cgh0m015jm0ofuao.clone(original);
-    $_cgh0m015jm0ofuao.setAll(nu, attributes);
+    var attributes = $_521j8z15jnlpawz7.clone(original);
+    $_521j8z15jnlpawz7.setAll(nu, attributes);
     return nu;
   };
   var copy$1 = function (original, tag) {
     var nu = shallowAs(original, tag);
-    var cloneChildren = $_8mvo7w18jm0ofub9.children(deep(original));
-    $_43bojf1xjm0ofugp.append(nu, cloneChildren);
+    var cloneChildren = $_dr4ybh18jnlpawzt.children(deep(original));
+    $_9vd3j51xjnlpax4s.append(nu, cloneChildren);
     return nu;
   };
   var mutate = function (original, tag) {
     var nu = shallowAs(original, tag);
-    $_8gbbpa1yjm0ofugu.before(original, nu);
-    var children = $_8mvo7w18jm0ofub9.children(original);
-    $_43bojf1xjm0ofugp.append(nu, children);
-    $_75npdb1wjm0ofugl.remove(original);
+    $_ag89ax1yjnlpax4x.before(original, nu);
+    var children = $_dr4ybh18jnlpawzt.children(original);
+    $_9vd3j51xjnlpax4s.append(nu, children);
+    $_azq8zm1wjnlpax4n.remove(original);
     return nu;
   };
-  var $_ep8ir62ijm0ofukf = {
+  var $_5sdpl92ijnlpax8h = {
     shallow: shallow,
     shallowAs: shallowAs,
     deep: deep,
     copy: copy$1,
     mutate: mutate
+  };
+
+  var fromHtml$1 = function (html, scope) {
+    var doc = scope || document;
+    var div = doc.createElement('div');
+    div.innerHTML = html;
+    return $_dr4ybh18jnlpawzt.children(Element$$1.fromDom(div));
+  };
+  var fromTags = function (tags, scope) {
+    return map(tags, function (x) {
+      return Element$$1.fromTag(x, scope);
+    });
+  };
+  var fromText$1 = function (texts, scope) {
+    return map(texts, function (x) {
+      return Element$$1.fromText(x, scope);
+    });
+  };
+  var fromDom$1 = function (nodes) {
+    return map(nodes, Element$$1.fromDom);
+  };
+  var $_d4cc782kjnlpax8m = {
+    fromHtml: fromHtml$1,
+    fromTags: fromTags,
+    fromText: fromText$1,
+    fromDom: fromDom$1
+  };
+
+  var get$5 = function (element) {
+    return element.dom().innerHTML;
+  };
+  var set$2 = function (element, content) {
+    var owner = $_dr4ybh18jnlpawzt.owner(element);
+    var docDom = owner.dom();
+    var fragment = Element$$1.fromDom(docDom.createDocumentFragment());
+    var contentElements = $_d4cc782kjnlpax8m.fromHtml(content, docDom);
+    $_9vd3j51xjnlpax4s.append(fragment, contentElements);
+    $_azq8zm1wjnlpax4n.empty(element);
+    $_ag89ax1yjnlpax4x.append(element, fragment);
+  };
+  var getOuter = function (element) {
+    var container = Element$$1.fromTag('div');
+    var clone = Element$$1.fromDom(element.dom().cloneNode(true));
+    $_ag89ax1yjnlpax4x.append(container, clone);
+    return get$5(container);
+  };
+  var $_am4twv2jjnlpax8k = {
+    get: get$5,
+    set: set$2,
+    getOuter: getOuter
   };
 
   var slice$3 = [].slice;
@@ -65234,7 +66152,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var noop$1 = function () {
   };
-  var $_cqjn032ljm0ofukz = {
+  var $_dv6bef2njnlpax9l = {
     constant: constant$1,
     negate: negate,
     and: and,
@@ -65251,14 +66169,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var trim$3 = function (text) {
     return text.replace(new RegExp(ZWSP, 'g'), '');
   };
-  var $_2bohar2pjm0ofulx = {
+  var $_90hfb72rjnlpaxae = {
     isZwsp: isZwsp,
     ZWSP: ZWSP,
     trim: trim$3
   };
 
-  var isElement$2 = $_2oph0b1rjm0ofuee.isElement;
-  var isText$2 = $_2oph0b1rjm0ofuee.isText;
+  var isElement$2 = $_fy28ei1rjnlpax2o.isElement;
+  var isText$2 = $_fy28ei1rjnlpax2o.isText;
   var isCaretContainerBlock = function (node) {
     if (isText$2(node)) {
       node = node.parentNode;
@@ -65266,18 +66184,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return isElement$2(node) && node.hasAttribute('data-mce-caret');
   };
   var isCaretContainerInline = function (node) {
-    return isText$2(node) && $_2bohar2pjm0ofulx.isZwsp(node.data);
+    return isText$2(node) && $_90hfb72rjnlpaxae.isZwsp(node.data);
   };
   var isCaretContainer = function (node) {
     return isCaretContainerBlock(node) || isCaretContainerInline(node);
   };
   var hasContent = function (node) {
-    return node.firstChild !== node.lastChild || !$_2oph0b1rjm0ofuee.isBr(node.firstChild);
+    return node.firstChild !== node.lastChild || !$_fy28ei1rjnlpax2o.isBr(node.firstChild);
   };
   var insertInline = function (node, before) {
     var doc, sibling, textNode, parentNode;
     doc = node.ownerDocument;
-    textNode = doc.createTextNode($_2bohar2pjm0ofulx.ZWSP);
+    textNode = doc.createTextNode($_90hfb72rjnlpaxae.ZWSP);
     parentNode = node.parentNode;
     if (!before) {
       sibling = node.nextSibling;
@@ -65311,11 +66229,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isBeforeInline = function (pos) {
     var container = pos.container();
-    return pos && $_2oph0b1rjm0ofuee.isText(container) && container.data.charAt(pos.offset()) === $_2bohar2pjm0ofulx.ZWSP;
+    return pos && $_fy28ei1rjnlpax2o.isText(container) && container.data.charAt(pos.offset()) === $_90hfb72rjnlpaxae.ZWSP;
   };
   var isAfterInline = function (pos) {
     var container = pos.container();
-    return pos && $_2oph0b1rjm0ofuee.isText(container) && container.data.charAt(pos.offset() - 1) === $_2bohar2pjm0ofulx.ZWSP;
+    return pos && $_fy28ei1rjnlpax2o.isText(container) && container.data.charAt(pos.offset() - 1) === $_90hfb72rjnlpaxae.ZWSP;
   };
   var createBogusBr = function () {
     var br = document.createElement('br');
@@ -65342,15 +66260,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return blockNode;
   };
   var startsWithCaretContainer = function (node) {
-    return isText$2(node) && node.data[0] === $_2bohar2pjm0ofulx.ZWSP;
+    return isText$2(node) && node.data[0] === $_90hfb72rjnlpaxae.ZWSP;
   };
   var endsWithCaretContainer = function (node) {
-    return isText$2(node) && node.data[node.data.length - 1] === $_2bohar2pjm0ofulx.ZWSP;
+    return isText$2(node) && node.data[node.data.length - 1] === $_90hfb72rjnlpaxae.ZWSP;
   };
   var trimBogusBr = function (elm) {
     var brs = elm.getElementsByTagName('br');
     var lastBr = brs[brs.length - 1];
-    if ($_2oph0b1rjm0ofuee.isBogus(lastBr)) {
+    if ($_fy28ei1rjnlpax2o.isBogus(lastBr)) {
       lastBr.parentNode.removeChild(lastBr);
     }
   };
@@ -65369,13 +66287,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return isCaretContainerBlock(range.startContainer);
   };
 
-  var isContentEditableTrue$1 = $_2oph0b1rjm0ofuee.isContentEditableTrue;
-  var isContentEditableFalse$1 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
-  var isBr$2 = $_2oph0b1rjm0ofuee.isBr;
-  var isText$3 = $_2oph0b1rjm0ofuee.isText;
-  var isInvalidTextElement = $_2oph0b1rjm0ofuee.matchNodeNames('script style textarea');
-  var isAtomicInline = $_2oph0b1rjm0ofuee.matchNodeNames('img input textarea hr iframe video audio object');
-  var isTable$1 = $_2oph0b1rjm0ofuee.matchNodeNames('table');
+  var isContentEditableTrue$1 = $_fy28ei1rjnlpax2o.isContentEditableTrue;
+  var isContentEditableFalse$1 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
+  var isBr$2 = $_fy28ei1rjnlpax2o.isBr;
+  var isText$3 = $_fy28ei1rjnlpax2o.isText;
+  var isInvalidTextElement = $_fy28ei1rjnlpax2o.matchNodeNames('script style textarea');
+  var isAtomicInline = $_fy28ei1rjnlpax2o.matchNodeNames('img input textarea hr iframe video audio object');
+  var isTable$1 = $_fy28ei1rjnlpax2o.matchNodeNames('table');
   var isCaretContainer$1 = isCaretContainer;
   var isCaretCandidate = function (node) {
     if (isCaretContainer$1(node)) {
@@ -65390,7 +66308,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return isAtomicInline(node) || isBr$2(node) || isTable$1(node) || isNonUiContentEditableFalse(node);
   };
   var isUnselectable = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && node.getAttribute('unselectable') === 'true';
+    return $_fy28ei1rjnlpax2o.isElement(node) && node.getAttribute('unselectable') === 'true';
   };
   var isNonUiContentEditableFalse = function (node) {
     return isUnselectable(node) === false && isContentEditableFalse$1(node);
@@ -65410,7 +66328,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!isNonUiContentEditableFalse(node)) {
       return false;
     }
-    return $_48w2ffmjm0ofu47.reduce(node.getElementsByTagName('*'), function (result, elm) {
+    return $_n452lmjnlpawsj.reduce(node.getElementsByTagName('*'), function (result, elm) {
       return result || isContentEditableTrue$1(elm);
     }, false) !== true;
   };
@@ -65536,14 +66454,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return Option.some(f.apply(null, r));
   };
 
-  var isElement$3 = $_2oph0b1rjm0ofuee.isElement;
+  var isElement$3 = $_fy28ei1rjnlpax2o.isElement;
   var isCaretCandidate$1 = isCaretCandidate;
-  var isBlock$1 = $_2oph0b1rjm0ofuee.matchStyleValues('display', 'block table');
-  var isFloated = $_2oph0b1rjm0ofuee.matchStyleValues('float', 'left right');
-  var isValidElementCaretCandidate = $_cqjn032ljm0ofukz.and(isElement$3, isCaretCandidate$1, $_cqjn032ljm0ofukz.negate(isFloated));
-  var isNotPre = $_cqjn032ljm0ofukz.negate($_2oph0b1rjm0ofuee.matchStyleValues('white-space', 'pre pre-line pre-wrap'));
-  var isText$4 = $_2oph0b1rjm0ofuee.isText;
-  var isBr$3 = $_2oph0b1rjm0ofuee.isBr;
+  var isBlock$1 = $_fy28ei1rjnlpax2o.matchStyleValues('display', 'block table');
+  var isFloated = $_fy28ei1rjnlpax2o.matchStyleValues('float', 'left right');
+  var isValidElementCaretCandidate = $_dv6bef2njnlpax9l.and(isElement$3, isCaretCandidate$1, $_dv6bef2njnlpax9l.negate(isFloated));
+  var isNotPre = $_dv6bef2njnlpax9l.negate($_fy28ei1rjnlpax2o.matchStyleValues('white-space', 'pre pre-line pre-wrap'));
+  var isText$4 = $_fy28ei1rjnlpax2o.isText;
+  var isBr$3 = $_fy28ei1rjnlpax2o.isBr;
   var nodeIndex = DOMUtils$1.nodeIndex;
   var resolveIndex = getNode;
   var createRange = function (doc) {
@@ -65559,7 +66477,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var container = range$$1.startContainer;
     var offset = range$$1.startOffset;
     var text;
-    if (isWhiteSpace(range$$1.toString()) && isNotPre(container.parentNode) && $_2oph0b1rjm0ofuee.isText(container)) {
+    if (isWhiteSpace(range$$1.toString()) && isNotPre(container.parentNode) && $_fy28ei1rjnlpax2o.isText(container)) {
       text = container.data;
       if (isWhiteSpace(text[offset - 1]) || isWhiteSpace(text[offset + 1])) {
         return true;
@@ -65585,7 +66503,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var ec = rng.endContainer;
     var so = rng.startOffset;
     var eo = rng.endOffset;
-    if (sc === ec && $_2oph0b1rjm0ofuee.isText(ec) && so === 0 && eo === 1) {
+    if (sc === ec && $_fy28ei1rjnlpax2o.isText(ec) && so === 0 && eo === 1) {
       var newRng = rng.cloneRange();
       newRng.setEndAfter(ec);
       return getBoundingClientRect(newRng);
@@ -65733,8 +66651,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return resolveIndex(container, before ? offset - 1 : offset);
     };
     return {
-      container: $_cqjn032ljm0ofukz.constant(container),
-      offset: $_cqjn032ljm0ofukz.constant(offset),
+      container: $_dv6bef2njnlpax9l.constant(container),
+      offset: $_dv6bef2njnlpax9l.constant(offset),
       toRange: toRange,
       getClientRects: getClientRects,
       isVisible: isVisible,
@@ -65776,7 +66694,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return pos ? pos.isAtEnd() : false;
     };
     CaretPosition.isTextPosition = function (pos) {
-      return pos ? $_2oph0b1rjm0ofuee.isText(pos.container()) : false;
+      return pos ? $_fy28ei1rjnlpax2o.isText(pos.container()) : false;
     };
     CaretPosition.isElementPosition = function (pos) {
       return CaretPosition.isTextPosition(pos) === false;
@@ -65784,8 +66702,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }(CaretPosition || (CaretPosition = {})));
   var CaretPosition$1 = CaretPosition;
 
-  var isText$5 = $_2oph0b1rjm0ofuee.isText;
-  var isBogus$1 = $_2oph0b1rjm0ofuee.isBogus;
+  var isText$5 = $_fy28ei1rjnlpax2o.isText;
+  var isBogus$1 = $_fy28ei1rjnlpax2o.isBogus;
   var nodeIndex$1 = DOMUtils$1.nodeIndex;
   var normalizedParent = function (node) {
     var parentNode = node.parentNode;
@@ -65798,7 +66716,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!node) {
       return [];
     }
-    return $_48w2ffmjm0ofu47.reduce(node.childNodes, function (result, node) {
+    return $_n452lmjnlpawsj.reduce(node.childNodes, function (result, node) {
       if (isBogus$1(node) && node.nodeName !== 'BR') {
         result = result.concat(getChildNodes(node));
       } else {
@@ -65824,16 +66742,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var normalizedNodeIndex = function (node) {
     var nodes, index, numTextFragments;
     nodes = getChildNodes(normalizedParent(node));
-    index = $_48w2ffmjm0ofu47.findIndex(nodes, equal$1(node), node);
+    index = $_n452lmjnlpawsj.findIndex(nodes, equal$1(node), node);
     nodes = nodes.slice(0, index + 1);
-    numTextFragments = $_48w2ffmjm0ofu47.reduce(nodes, function (result, node, i) {
+    numTextFragments = $_n452lmjnlpawsj.reduce(nodes, function (result, node, i) {
       if (isText$5(node) && isText$5(nodes[i - 1])) {
         result++;
       }
       return result;
     }, 0);
-    nodes = $_48w2ffmjm0ofu47.filter(nodes, $_2oph0b1rjm0ofuee.matchNodeNames(node.nodeName));
-    index = $_48w2ffmjm0ofu47.findIndex(nodes, equal$1(node), node);
+    nodes = $_n452lmjnlpawsj.filter(nodes, $_fy28ei1rjnlpax2o.matchNodeNames(node.nodeName));
+    index = $_n452lmjnlpawsj.findIndex(nodes, equal$1(node), node);
     return index - numTextFragments;
   };
   var createPathItem = function (node) {
@@ -65873,18 +66791,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     path.push(createPathItem(container));
     parents = parentsUntil(root, container);
-    parents = $_48w2ffmjm0ofu47.filter(parents, $_cqjn032ljm0ofukz.negate($_2oph0b1rjm0ofuee.isBogus));
-    path = path.concat($_48w2ffmjm0ofu47.map(parents, function (node) {
+    parents = $_n452lmjnlpawsj.filter(parents, $_dv6bef2njnlpax9l.negate($_fy28ei1rjnlpax2o.isBogus));
+    path = path.concat($_n452lmjnlpawsj.map(parents, function (node) {
       return createPathItem(node);
     }));
     return path.reverse().join('/') + ',' + outputOffset;
   };
   var resolvePathItem = function (node, name, index) {
     var nodes = getChildNodes(node);
-    nodes = $_48w2ffmjm0ofu47.filter(nodes, function (node, index) {
+    nodes = $_n452lmjnlpawsj.filter(nodes, function (node, index) {
       return !isText$5(node) || !isText$5(nodes[index - 1]);
     });
-    nodes = $_48w2ffmjm0ofu47.filter(nodes, $_2oph0b1rjm0ofuee.matchNodeNames(name));
+    nodes = $_n452lmjnlpawsj.filter(nodes, $_fy28ei1rjnlpax2o.matchNodeNames(name));
     return nodes[index];
   };
   var findTextPosition = function (container, offset) {
@@ -65917,7 +66835,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     parts = path.split(',');
     path = parts[0].split('/');
     offset = parts.length > 1 ? parts[1] : 'before';
-    container = $_48w2ffmjm0ofu47.reduce(path, function (result, value) {
+    container = $_n452lmjnlpawsj.reduce(path, function (result, value) {
       value = /([\w\-\(\)]+)\[([0-9]+)\]/.exec(value);
       if (!value) {
         return null;
@@ -65941,11 +66859,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return findTextPosition(container, parseInt(offset, 10));
   };
 
-  var isContentEditableFalse$2 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableFalse$2 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var getNormalizedTextOffset = function (trim, container, offset) {
     var node, trimmedOffset;
     trimmedOffset = trim(container.data.slice(0, offset)).length;
-    for (node = container.previousSibling; node && $_2oph0b1rjm0ofuee.isText(node); node = node.previousSibling) {
+    for (node = container.previousSibling; node && $_fy28ei1rjnlpax2o.isText(node); node = node.previousSibling) {
       trimmedOffset += trim(node.data).length;
     }
     return trimmedOffset;
@@ -65956,7 +66874,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var point = [];
     var childNodes, after = 0;
     var root = dom.getRoot();
-    if ($_2oph0b1rjm0ofuee.isText(container)) {
+    if ($_fy28ei1rjnlpax2o.isText(container)) {
       point.push(normalized ? getNormalizedTextOffset(trim, container, offset) : offset);
     } else {
       childNodes = container.childNodes;
@@ -65980,13 +66898,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return bookmark;
   };
   var trimEmptyTextNode = function (node) {
-    if ($_2oph0b1rjm0ofuee.isText(node) && node.data.length === 0) {
+    if ($_fy28ei1rjnlpax2o.isText(node) && node.data.length === 0) {
       node.parentNode.removeChild(node);
     }
   };
   var findIndex$3 = function (dom, name, element) {
     var count = 0;
-    $_cvczchljm0ofu3z.each(dom.select(name), function (node) {
+    $_1q1txeljnlpawsa.each(dom.select(name), function (node) {
       if (node.getAttribute('data-mce-bogus') === 'all') {
         return;
       }
@@ -66002,7 +66920,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var prefix = start ? 'start' : 'end';
     container = rng[prefix + 'Container'];
     offset = rng[prefix + 'Offset'];
-    if ($_2oph0b1rjm0ofuee.isElement(container) && container.nodeName === 'TR') {
+    if ($_fy28ei1rjnlpax2o.isElement(container) && container.nodeName === 'TR') {
       childNodes = container.childNodes;
       container = childNodes[Math.min(start ? offset : offset - 1, childNodes.length - 1)];
       if (container) {
@@ -66018,14 +66936,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var findSibling = function (node, offset) {
     var sibling;
-    if ($_2oph0b1rjm0ofuee.isElement(node)) {
+    if ($_fy28ei1rjnlpax2o.isElement(node)) {
       node = getNode(node, offset);
       if (isContentEditableFalse$2(node)) {
         return node;
       }
     }
     if (isCaretContainer(node)) {
-      if ($_2oph0b1rjm0ofuee.isText(node) && isCaretContainerBlock(node)) {
+      if ($_fy28ei1rjnlpax2o.isText(node) && isCaretContainerBlock(node)) {
         node = node.parentNode;
       }
       sibling = node.previousSibling;
@@ -66113,7 +67031,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getBookmark = function (selection, type, normalized) {
     if (type === 2) {
-      return getOffsetBookmark($_2bohar2pjm0ofulx.trim, normalized, selection);
+      return getOffsetBookmark($_90hfb72rjnlpaxae.trim, normalized, selection);
     } else if (type === 3) {
       return getCaretBookmark(selection);
     } else if (type) {
@@ -66122,7 +67040,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return getPersistentBookmark(selection, false);
     }
   };
-  var $_cmrtxr2jjm0ofukj = {
+  var $_5l0mu32ljnlpax8x = {
     getBookmark: getBookmark,
     getUndoBookmark: curry(getOffsetBookmark, identity, true),
     getPersistentBookmark: getPersistentBookmark
@@ -66130,7 +67048,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var CARET_ID = '_mce_caret';
   var isCaretNode = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && node.id === CARET_ID;
+    return $_fy28ei1rjnlpax2o.isElement(node) && node.id === CARET_ID;
   };
   var getParentCaretContainer = function (body, node) {
     while (node && node !== body) {
@@ -66142,8 +67060,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return null;
   };
 
-  var isElement$4 = $_2oph0b1rjm0ofuee.isElement;
-  var isText$6 = $_2oph0b1rjm0ofuee.isText;
+  var isElement$4 = $_fy28ei1rjnlpax2o.isElement;
+  var isText$6 = $_fy28ei1rjnlpax2o.isText;
   var removeNode = function (node) {
     var parentNode = node.parentNode;
     if (parentNode) {
@@ -66165,7 +67083,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var trimCount = function (text) {
-    var trimmedText = $_2bohar2pjm0ofulx.trim(text);
+    var trimmedText = $_90hfb72rjnlpaxae.trim(text);
     return {
       count: text.length - trimmedText.length,
       text: trimmedText
@@ -66212,17 +67130,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
     if (isText$6(caretContainerNode)) {
-      var text = $_2bohar2pjm0ofulx.trim(getNodeValue(caretContainerNode));
+      var text = $_90hfb72rjnlpaxae.trim(getNodeValue(caretContainerNode));
       setNodeValue(caretContainerNode, text);
     }
   };
-  var $_av1yxy31jm0ofuo8 = {
+  var $_ctzulb33jnlpaxck = {
     removeAndReposition: removeAndReposition,
     remove: remove$7
   };
 
-  var isContentEditableTrue$2 = $_2oph0b1rjm0ofuee.isContentEditableTrue;
-  var isContentEditableFalse$3 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableTrue$2 = $_fy28ei1rjnlpax2o.isContentEditableTrue;
+  var isContentEditableFalse$3 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var showCaret = function (direction, editor, node, before, scrollIntoView) {
     return editor._selectionOverrides.showCaret(direction, node, before, scrollIntoView);
   };
@@ -66273,10 +67191,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     HDirection[HDirection['Backwards'] = -1] = 'Backwards';
     HDirection[HDirection['Forwards'] = 1] = 'Forwards';
   }(HDirection || (HDirection = {})));
-  var isContentEditableFalse$4 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
-  var isText$7 = $_2oph0b1rjm0ofuee.isText;
-  var isElement$5 = $_2oph0b1rjm0ofuee.isElement;
-  var isBr$4 = $_2oph0b1rjm0ofuee.isBr;
+  var isContentEditableFalse$4 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
+  var isText$7 = $_fy28ei1rjnlpax2o.isText;
+  var isElement$5 = $_fy28ei1rjnlpax2o.isElement;
+  var isBr$4 = $_fy28ei1rjnlpax2o.isBr;
   var isCaretCandidate$2 = isCaretCandidate;
   var isAtomic$1 = isAtomic;
   var isEditableCaretCandidate$1 = isEditableCaretCandidate;
@@ -66321,10 +67239,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isBrBeforeBlock = function (node, root) {
     var next;
-    if (!$_2oph0b1rjm0ofuee.isBr(node)) {
+    if (!$_fy28ei1rjnlpax2o.isBr(node)) {
       return false;
     }
-    next = findCaretPosition(1, CaretPosition$1.after(node), root);
+    if (isAtomic(node.nextSibling)) {
+      return false;
+    }
+    next = findCaretPosition(HDirection.Forwards, CaretPosition$1.after(node), root);
     if (!next) {
       return false;
     }
@@ -66400,13 +67321,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       node = nextNode ? nextNode : caretPosition.getNode();
     }
     if (isForwards(direction) && caretPosition.isAtEnd() || isBackwards(direction) && caretPosition.isAtStart()) {
-      node = findNode(node, direction, $_cqjn032ljm0ofukz.constant(true), root, true);
+      node = findNode(node, direction, $_dv6bef2njnlpax9l.constant(true), root, true);
       if (isEditableCaretCandidate$1(node, root)) {
         return getCaretCandidatePosition(direction, node);
       }
     }
     nextNode = findNode(node, direction, isEditableCaretCandidate$1, root);
-    rootContentEditableFalseElm = $_48w2ffmjm0ofu47.last($_48w2ffmjm0ofu47.filter(getParents(container, root), isContentEditableFalse$4));
+    rootContentEditableFalseElm = $_n452lmjnlpawsj.last($_n452lmjnlpawsj.filter(getParents(container, root), isContentEditableFalse$4));
     if (rootContentEditableFalseElm && (!nextNode || !rootContentEditableFalseElm.contains(nextNode))) {
       if (isForwards(direction)) {
         caretPosition = CaretPosition$1.after(rootContentEditableFalseElm);
@@ -66445,7 +67366,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return direction === HDirection.Forwards ? caretWalker.next(pos) : caretWalker.prev(pos);
   };
   var getBreakType = function (scope, direction, currentPos, nextPos) {
-    if ($_2oph0b1rjm0ofuee.isBr(nextPos.getNode(direction === HDirection.Forwards))) {
+    if ($_fy28ei1rjnlpax2o.isBr(nextPos.getNode(direction === HDirection.Forwards))) {
       return BreakType.Br;
     } else if (isInSameBlock(currentPos, nextPos) === false) {
       return BreakType.Block;
@@ -66462,7 +67383,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!nextPos) {
         break;
       }
-      if ($_2oph0b1rjm0ofuee.isBr(nextPos.getNode(false))) {
+      if ($_fy28ei1rjnlpax2o.isBr(nextPos.getNode(false))) {
         if (direction === HDirection.Forwards) {
           return {
             positions: flip(direction, positions).concat([nextPos]),
@@ -66530,12 +67451,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getPositionsAbove = curry(getAdjacentLinePositions, -1, getPositionsUntilPreviousLine);
   var getPositionsBelow = curry(getAdjacentLinePositions, 1, getPositionsUntilNextLine);
   var getFirstLinePositions = function (scope) {
-    return $_3belrm2yjm0ofun6.firstPositionIn(scope).map(function (pos) {
+    return $_32xcvk30jnlpaxbn.firstPositionIn(scope).map(function (pos) {
       return [pos].concat(getPositionsUntilNextLine(scope, pos).positions);
     }).getOr([]);
   };
   var getLastLinePositions = function (scope) {
-    return $_3belrm2yjm0ofun6.lastPositionIn(scope).map(function (pos) {
+    return $_32xcvk30jnlpaxbn.lastPositionIn(scope).map(function (pos) {
       return getPositionsUntilPreviousLine(scope, pos).positions.concat(pos);
     }).getOr([]);
   };
@@ -66579,7 +67500,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }, Option.none());
   };
   var getClosestCell = function (getYAxisValue, isTargetCorner, table, x, y) {
-    var cells = $_29u9y827jm0ofuid.descendants(Element$$1.fromDom(table), 'td,th,caption').map(function (e) {
+    var cells = $_cmitir27jnlpax6e.descendants(Element$$1.fromDom(table), 'td,th,caption').map(function (e) {
       return e.dom();
     });
     var corners = filter(getCorners(getYAxisValue, cells), function (corner) {
@@ -66647,7 +67568,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (fireScrollIntoViewEvent(editor, elm, alignToTop)) {
       return;
     }
-    if (!$_2oph0b1rjm0ofuee.isElement(elm)) {
+    if (!$_fy28ei1rjnlpax2o.isElement(elm)) {
       return;
     }
     if (alignToTop === false) {
@@ -66706,7 +67627,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       scrollBy(editor, overflow.x !== 0 ? dx : 0, overflow.y !== 0 ? dy : 0);
     });
   };
-  var $_2fk7dd37jm0ofuq1 = {
+  var $_av60ug39jnlpaxee = {
     scrollElementIntoView: scrollElementIntoView,
     scrollRangeIntoView: scrollRangeIntoView
   };
@@ -66764,10 +67685,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return editor.getParam('end_container_on_empty_block', false);
   };
   var getFontStyleValues = function (editor) {
-    return $_cvczchljm0ofu3z.explode(editor.getParam('font_size_style_values', ''));
+    return $_1q1txeljnlpawsa.explode(editor.getParam('font_size_style_values', ''));
   };
   var getFontSizeClasses = function (editor) {
-    return $_cvczchljm0ofu3z.explode(editor.getParam('font_size_classes', ''));
+    return $_1q1txeljnlpawsa.explode(editor.getParam('font_size_classes', ''));
   };
   var getImagesDataImgFilter = function (editor) {
     return editor.getParam('images_dataimg_filter', constant(true), 'function');
@@ -66793,7 +67714,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getImagesUploadHandler = function (editor) {
     return editor.getParam('images_upload_handler', null, 'function');
   };
-  var $_9enitt38jm0ofuq6 = {
+  var $_c6e09z3ajnlpaxek = {
     getIframeAttrs: getIframeAttrs,
     getDocType: getDocType,
     getDocumentBaseUrl: getDocumentBaseUrl,
@@ -66819,13 +67740,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     getImagesUploadHandler: getImagesUploadHandler
   };
 
-  var browser$2 = $_4i10pfojm0ofu4r.detect().browser;
+  var browser$2 = $_766rx4ojnlpawtd.detect().browser;
   var isFakeCaretTableBrowser = function () {
     return browser$2.isIE() || browser$2.isEdge() || browser$2.isFirefox();
   };
   var moveToRange = function (editor, rng) {
     editor.selection.setRng(rng);
-    $_2fk7dd37jm0ofuq1.scrollRangeIntoView(editor, rng);
+    $_av60ug39jnlpaxee.scrollRangeIntoView(editor, rng);
   };
   var hasNextBreak = function (getPositionsUntil, scope, lineInfo) {
     return lineInfo.breakAt.map(function (breakPos) {
@@ -66840,17 +67761,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isAtTableCellLine = function (getPositionsUntil, scope, pos) {
     var lineInfo = getPositionsUntil(scope, pos);
-    if (startsWithWrapBreak(lineInfo) || !$_2oph0b1rjm0ofuee.isBr(pos.getNode()) && startsWithBrBreak(lineInfo)) {
+    if (startsWithWrapBreak(lineInfo) || !$_fy28ei1rjnlpax2o.isBr(pos.getNode()) && startsWithBrBreak(lineInfo)) {
       return !hasNextBreak(getPositionsUntil, scope, lineInfo);
     } else {
       return lineInfo.breakAt.isNone();
     }
   };
-  var isAtFirstTableCellLine = $_cqjn032ljm0ofukz.curry(isAtTableCellLine, getPositionsUntilPreviousLine);
-  var isAtLastTableCellLine = $_cqjn032ljm0ofukz.curry(isAtTableCellLine, getPositionsUntilNextLine);
+  var isAtFirstTableCellLine = $_dv6bef2njnlpax9l.curry(isAtTableCellLine, getPositionsUntilPreviousLine);
+  var isAtLastTableCellLine = $_dv6bef2njnlpax9l.curry(isAtTableCellLine, getPositionsUntilNextLine);
   var isCaretAtStartOrEndOfTable = function (forward, rng, table) {
     var caretPos = CaretPosition$1.fromRangeStart(rng);
-    return $_3belrm2yjm0ofun6.positionIn(!forward, table).map(function (pos) {
+    return $_32xcvk30jnlpaxbn.positionIn(!forward, table).map(function (pos) {
       return pos.isEqual(caretPos);
     }).getOr(false);
   };
@@ -66880,19 +67801,19 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getTable = function (previous, pos) {
     var node = pos.getNode(previous);
-    return $_2oph0b1rjm0ofuee.isElement(node) && node.nodeName === 'TABLE' ? Option.some(node) : Option.none();
+    return $_fy28ei1rjnlpax2o.isElement(node) && node.nodeName === 'TABLE' ? Option.some(node) : Option.none();
   };
   var renderBlock = function (down, editor, table, pos) {
-    var forcedRootBlock = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
+    var forcedRootBlock = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
     if (forcedRootBlock) {
       editor.undoManager.transact(function () {
         var element = Element$$1.fromTag(forcedRootBlock);
-        $_cgh0m015jm0ofuao.setAll(element, $_9enitt38jm0ofuq6.getForcedRootBlockAttrs(editor));
-        $_8gbbpa1yjm0ofugu.append(element, Element$$1.fromTag('br'));
+        $_521j8z15jnlpawz7.setAll(element, $_c6e09z3ajnlpaxek.getForcedRootBlockAttrs(editor));
+        $_ag89ax1yjnlpax4x.append(element, Element$$1.fromTag('br'));
         if (down) {
-          $_8gbbpa1yjm0ofugu.after(Element$$1.fromDom(table), element);
+          $_ag89ax1yjnlpax4x.after(Element$$1.fromDom(table), element);
         } else {
-          $_8gbbpa1yjm0ofugu.before(Element$$1.fromDom(table), element);
+          $_ag89ax1yjnlpax4x.before(Element$$1.fromDom(table), element);
         }
         var rng = editor.dom.createRng();
         rng.setStart(element.dom(), 0);
@@ -66909,7 +67830,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     table.fold(function () {
       return moveToRange(editor, pos.toRange());
     }, function (table) {
-      return $_3belrm2yjm0ofun6.positionIn(last$$1, editor.getBody()).filter(function (lastPos) {
+      return $_32xcvk30jnlpaxbn.positionIn(last$$1, editor.getBody()).filter(function (lastPos) {
         return lastPos.isEqual(pos);
       }).fold(function () {
         return moveToRange(editor, pos.toRange());
@@ -66953,9 +67874,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
 
-  var isContentEditableFalse$5 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableFalse$5 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var isTableCell$1 = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && /^(TD|TH)$/i.test(node.tagName);
+    return $_fy28ei1rjnlpax2o.isElement(node) && /^(TD|TH)$/i.test(node.tagName);
   };
   var getAbsoluteClientRect = function (root, element, before) {
     var clientRect = collapse(element.getBoundingClientRect(), before);
@@ -67054,7 +67975,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var hide = function () {
       trimInlineCaretContainers(root);
       if (caretContainerNode) {
-        $_av1yxy31jm0ofuo8.remove(caretContainerNode);
+        $_ctzulb33jnlpaxck.remove(caretContainerNode);
         caretContainerNode = null;
       }
       lastVisualCaret.get().each(function (caretState) {
@@ -67064,7 +67985,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       clearInterval(cursorInterval);
     };
     var startBlink = function () {
-      cursorInterval = $_4oxubkijm0ofu12.setInterval(function () {
+      cursorInterval = $_2nbnh1ijnlpawpi.setInterval(function () {
         if (hasFocus()) {
           DomQuery('div.mce-visual-caret', root).toggleClass('mce-visual-caret-hidden');
         } else {
@@ -67079,7 +68000,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     var destroy = function () {
-      return $_4oxubkijm0ofu12.clearInterval(cursorInterval);
+      return $_2nbnh1ijnlpawpi.clearInterval(cursorInterval);
     };
     var getCss = function () {
       return '.mce-visual-caret {' + 'position: absolute;' + 'background-color: black;' + 'background-color: currentcolor;' + '}' + '.mce-visual-caret-hidden {' + 'display: none;' + '}' + '*[data-mce-caret] {' + 'position: absolute;' + 'left: -1000px;' + 'right: auto;' + 'top: 0;' + 'margin: 0;' + 'padding: 0;' + '}';
@@ -67093,15 +68014,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
   var isFakeCaretTarget = function (node) {
-    return isContentEditableFalse$5(node) || $_2oph0b1rjm0ofuee.isTable(node) && isFakeCaretTableBrowser();
+    return isContentEditableFalse$5(node) || $_fy28ei1rjnlpax2o.isTable(node) && isFakeCaretTableBrowser();
   };
 
-  var isContentEditableFalse$6 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
-  var isBlockLike = $_2oph0b1rjm0ofuee.matchStyleValues('display', 'block table table-cell table-caption list-item');
+  var isContentEditableFalse$6 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
+  var isBlockLike = $_fy28ei1rjnlpax2o.matchStyleValues('display', 'block table table-cell table-caption list-item');
   var isCaretContainer$2 = isCaretContainer;
   var isCaretContainerBlock$1 = isCaretContainerBlock;
-  var curry$2 = $_cqjn032ljm0ofukz.curry;
-  var isElement$6 = $_2oph0b1rjm0ofuee.isElement;
+  var curry$2 = $_dv6bef2njnlpax9l.curry;
+  var isElement$6 = $_fy28ei1rjnlpax2o.isElement;
   var isCaretCandidate$3 = isCaretCandidate;
   var isForwards = function (direction) {
     return direction > 0;
@@ -67240,7 +68161,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!range.collapsed) {
       return range;
     }
-    if ($_2oph0b1rjm0ofuee.isText(container)) {
+    if ($_fy28ei1rjnlpax2o.isText(container)) {
       if (isCaretContainer$2(container)) {
         if (direction === 1) {
           node = leanRight(container);
@@ -67301,10 +68222,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isNextToContentEditableFalse = function (relativeOffset, caretPosition) {
     var node = getChildNodeAtRelativeOffset(relativeOffset, caretPosition);
-    return isContentEditableFalse$6(node) && !$_2oph0b1rjm0ofuee.isBogusAll(node);
+    return isContentEditableFalse$6(node) && !$_fy28ei1rjnlpax2o.isBogusAll(node);
   };
   var isNextToTable = function (relativeOffset, caretPosition) {
-    return $_2oph0b1rjm0ofuee.isTable(getChildNodeAtRelativeOffset(relativeOffset, caretPosition));
+    return $_fy28ei1rjnlpax2o.isTable(getChildNodeAtRelativeOffset(relativeOffset, caretPosition));
   };
   var getRelativeCefElm = function (forward, caretPosition) {
     return Option.from(getChildNodeAtRelativeOffset(forward ? 0 : -1, caretPosition)).filter(isContentEditableFalse$6);
@@ -67326,7 +68247,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return fromPosition(forward, root, position);
   };
   var afterElement = function (node) {
-    return $_2oph0b1rjm0ofuee.isBr(node) ? CaretPosition$1.before(node) : CaretPosition$1.after(node);
+    return $_fy28ei1rjnlpax2o.isBr(node) ? CaretPosition$1.before(node) : CaretPosition$1.after(node);
   };
   var isBeforeOrStart = function (position) {
     if (CaretPosition$1.isTextPosition(position)) {
@@ -67347,7 +68268,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return !CaretPosition$1.isTextPosition(from) && !CaretPosition$1.isTextPosition(to) && from.getNode() === to.getNode(true);
   };
   var isAtBr = function (position) {
-    return !CaretPosition$1.isTextPosition(position) && $_2oph0b1rjm0ofuee.isBr(position.getNode());
+    return !CaretPosition$1.isTextPosition(position) && $_fy28ei1rjnlpax2o.isBr(position.getNode());
   };
   var shouldSkipPosition = function (forward, from, to) {
     if (forward) {
@@ -67371,7 +68292,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var positionIn = function (forward, element) {
     var startNode = forward ? element.firstChild : element.lastChild;
-    if ($_2oph0b1rjm0ofuee.isText(startNode)) {
+    if ($_fy28ei1rjnlpax2o.isText(startNode)) {
       return Option.some(CaretPosition$1(startNode, forward ? 0 : startNode.data.length));
     } else if (startNode) {
       if (isCaretCandidate(startNode)) {
@@ -67383,7 +68304,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return Option.none();
     }
   };
-  var $_3belrm2yjm0ofun6 = {
+  var $_32xcvk30jnlpaxbn = {
     fromPosition: fromPosition,
     nextPosition: curry(fromPosition, true),
     prevPosition: curry(fromPosition, false),
@@ -67406,11 +68327,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return bookmark.hasOwnProperty('name');
   };
   var isPathBookmark = function (bookmark) {
-    return $_cvczchljm0ofu3z.isArray(bookmark.start);
+    return $_1q1txeljnlpawsa.isArray(bookmark.start);
   };
 
   var addBogus = function (dom, node) {
-    if (dom.isBlock(node) && !node.innerHTML && !$_emqeydajm0oftwm.ie) {
+    if (dom.isBlock(node) && !node.innerHTML && !$_cseqobajnlpawll.ie) {
       node.innerHTML = '<br data-mce-bogus="1" />';
     }
     return node;
@@ -67425,7 +68346,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return rng;
   };
   var insertZwsp = function (node, rng) {
-    var textNode = node.ownerDocument.createTextNode($_2bohar2pjm0ofulx.ZWSP);
+    var textNode = node.ownerDocument.createTextNode($_90hfb72rjnlpaxae.ZWSP);
     node.appendChild(textNode);
     rng.setStart(textNode, 0);
     rng.setEnd(textNode, 0);
@@ -67434,7 +68355,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return node.hasChildNodes() === false;
   };
   var tryFindRangePosition = function (node, rng) {
-    return $_3belrm2yjm0ofun6.lastPositionIn(node).fold(function () {
+    return $_32xcvk30jnlpaxbn.lastPositionIn(node).fold(function () {
       return false;
     }, function (pos) {
       rng.setStart(pos.container(), pos.offset());
@@ -67484,7 +68405,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return true;
   };
   var isValidTextNode = function (node) {
-    return $_2oph0b1rjm0ofuee.isText(node) && node.data.length > 0;
+    return $_fy28ei1rjnlpax2o.isText(node) && node.data.length > 0;
   };
   var restoreEndPoint = function (dom, suffix, bookmark) {
     var marker = dom.get(bookmark.id + '_' + suffix), node, idx, next, prev;
@@ -67533,15 +68454,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!keep) {
         prev = marker.previousSibling;
         next = marker.nextSibling;
-        $_cvczchljm0ofu3z.each($_cvczchljm0ofu3z.grep(marker.childNodes), function (node) {
-          if ($_2oph0b1rjm0ofuee.isText(node)) {
+        $_1q1txeljnlpawsa.each($_1q1txeljnlpawsa.grep(marker.childNodes), function (node) {
+          if ($_fy28ei1rjnlpax2o.isText(node)) {
             node.nodeValue = node.nodeValue.replace(/\uFEFF/g, '');
           }
         });
         while (marker = dom.get(bookmark.id + '_' + suffix)) {
           dom.remove(marker, true);
         }
-        if (prev && next && prev.nodeType === next.nodeType && $_2oph0b1rjm0ofuee.isText(prev) && !$_emqeydajm0oftwm.opera) {
+        if (prev && next && prev.nodeType === next.nodeType && $_fy28ei1rjnlpax2o.isText(prev) && !$_cseqobajnlpawll.opera) {
           idx = prev.nodeValue.length;
           prev.appendData(next.nodeValue);
           dom.remove(next);
@@ -67607,20 +68528,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return Option.none();
   };
-  var $_9hsyjj2wjm0ofumw = { resolve: resolve$3 };
+  var $_6rgudt2yjnlpaxb4 = { resolve: resolve$3 };
 
   var getBookmark$1 = function (selection, type, normalized) {
-    return $_cmrtxr2jjm0ofukj.getBookmark(selection, type, normalized);
+    return $_5l0mu32ljnlpax8x.getBookmark(selection, type, normalized);
   };
   var moveToBookmark = function (selection, bookmark) {
-    $_9hsyjj2wjm0ofumw.resolve(selection, bookmark).each(function (rng) {
+    $_6rgudt2yjnlpaxb4.resolve(selection, bookmark).each(function (rng) {
       selection.setRng(rng);
     });
   };
   var isBookmarkNode$1 = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && node.tagName === 'SPAN' && node.getAttribute('data-mce-type') === 'bookmark';
+    return $_fy28ei1rjnlpax2o.isElement(node) && node.tagName === 'SPAN' && node.getAttribute('data-mce-type') === 'bookmark';
   };
-  var $_5lihpr2vjm0ofumt = {
+  var $_43l8qj2xjnlpaxb1 = {
     getBookmark: getBookmark$1,
     moveToBookmark: moveToBookmark,
     isBookmarkNode: isBookmarkNode$1
@@ -67721,7 +68642,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getParents$1 = function (dom, node, selector) {
     return dom.getParents(node, selector, dom.getRoot());
   };
-  var $_1mo0ng3ajm0ofuqe = {
+  var $_dlfh233cjnlpaxes = {
     isInlineBlock: isInlineBlock,
     moveStart: moveStart,
     getNonWhiteSpaceSibling: getNonWhiteSpaceSibling,
@@ -67736,10 +68657,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     getParents: getParents$1
   };
 
-  var isBookmarkNode$2 = $_5lihpr2vjm0ofumt.isBookmarkNode;
-  var getParents$2 = $_1mo0ng3ajm0ofuqe.getParents;
-  var isWhiteSpaceNode$1 = $_1mo0ng3ajm0ofuqe.isWhiteSpaceNode;
-  var isTextBlock$2 = $_1mo0ng3ajm0ofuqe.isTextBlock;
+  var isBookmarkNode$2 = $_43l8qj2xjnlpaxb1.isBookmarkNode;
+  var getParents$2 = $_dlfh233cjnlpaxes.getParents;
+  var isWhiteSpaceNode$1 = $_dlfh233cjnlpaxes.isWhiteSpaceNode;
+  var isTextBlock$2 = $_dlfh233cjnlpaxes.isTextBlock;
   var findLeaf = function (node, offset) {
     if (typeof offset === 'undefined') {
       offset = node.nodeType === 3 ? node.length : node.childNodes.length;
@@ -67793,7 +68714,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       pos = str.lastIndexOf(' ', offset);
       pos2 = str.lastIndexOf('\xA0', offset);
       pos = pos > pos2 ? pos : pos2;
-      if (pos !== -1 && !remove) {
+      if (pos !== -1 && !remove && (pos < offset || !start) && pos <= str.length) {
         pos++;
       }
     } else {
@@ -67826,7 +68747,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             offset: pos
           };
         }
-      } else if (dom.isBlock(node) || $_1mo0ng3ajm0ofuqe.isEq(node, 'BR')) {
+      } else if (dom.isBlock(node) || $_dlfh233cjnlpaxes.isEq(node, 'BR')) {
         break;
       }
     }
@@ -67881,7 +68802,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       node = container;
       while (node[siblingName] && !dom.isBlock(node[siblingName])) {
         node = node[siblingName];
-        if ($_1mo0ng3ajm0ofuqe.isEq(node, 'br')) {
+        if ($_dlfh233cjnlpaxes.isEq(node, 'br')) {
           break;
         }
       }
@@ -68008,9 +68929,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       endOffset: endOffset
     };
   };
-  var $_24nwrb2ujm0ofuml = { expandRng: expandRng };
+  var $_3cscnj2wjnlpaxau = { expandRng: expandRng };
 
-  var each$8 = $_cvczchljm0ofu3z.each;
+  var each$8 = $_1q1txeljnlpawsa.each;
   var getEndChild = function (container, index) {
     var childNodes = container.childNodes;
     index--;
@@ -68115,7 +69036,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     walkBoundary(endContainer, endPoint);
   };
-  var $_5f1qhm3bjm0ofuqj = { walk: walk$2 };
+  var $_6wozuu3djnlpaxew = { walk: walk$2 };
 
   var zeroWidth = function () {
     return '\uFEFF';
@@ -68137,7 +69058,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var getOptionSafe = function (element) {
       return is(element) ? Option.from(element.dom().nodeValue) : Option.none();
     };
-    var browser = $_4i10pfojm0ofu4r.detect().browser;
+    var browser = $_766rx4ojnlpawtd.detect().browser;
     var getOption = browser.isIE() && browser.version.major === 10 ? getOptionIE10 : getOptionSafe;
     var set = function (element, value) {
       if (!is(element))
@@ -68151,36 +69072,36 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   }
 
-  var api = NodeValue($_byto2911jm0ofu9v.isText, 'text');
-  var get$4 = function (element) {
+  var api = NodeValue($_7u5fzs11jnlpawv6.isText, 'text');
+  var get$6 = function (element) {
     return api.get(element);
   };
   var getOption = function (element) {
     return api.getOption(element);
   };
-  var set$2 = function (element, value) {
+  var set$3 = function (element, value) {
     api.set(element, value);
   };
-  var $_7u5bnv3ejm0ofur4 = {
-    get: get$4,
+  var $_dzrxgg3gjnlpaxf6 = {
+    get: get$6,
     getOption: getOption,
-    set: set$2
+    set: set$3
   };
 
   var isZeroWidth = function (elem) {
-    return $_byto2911jm0ofu9v.isText(elem) && $_7u5bnv3ejm0ofur4.get(elem) === zeroWidth();
+    return $_7u5fzs11jnlpawv6.isText(elem) && $_dzrxgg3gjnlpaxf6.get(elem) === zeroWidth();
   };
   var context = function (editor, elem, wrapName, nodeName) {
-    return $_8mvo7w18jm0ofub9.parent(elem).fold(function () {
+    return $_dr4ybh18jnlpawzt.parent(elem).fold(function () {
       return 'skipping';
     }, function (parent) {
       if (nodeName === 'br' || isZeroWidth(elem)) {
-        return 'skipping';
+        return 'valid';
       } else if (isAnnotation(elem)) {
         return 'existing';
       } else if (isCaretNode(elem)) {
         return 'caret';
-      } else if (!$_1mo0ng3ajm0ofuqe.isValid(editor, wrapName, nodeName) || !$_1mo0ng3ajm0ofuqe.isValid(editor, $_byto2911jm0ofu9v.name(parent), wrapName)) {
+      } else if (!$_dlfh233cjnlpaxes.isValid(editor, wrapName, nodeName) || !$_dlfh233cjnlpaxes.isValid(editor, $_7u5fzs11jnlpawv6.name(parent), wrapName)) {
         return 'invalid-child';
       } else {
         return 'valid';
@@ -68199,29 +69120,36 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           t[p[i]] = s[p[i]];
     return t;
   };
+  var shouldApplyToTrailingSpaces = function (rng) {
+    return rng.startContainer.nodeType === 3 && rng.startContainer.nodeValue.length >= rng.startOffset && rng.startContainer.nodeValue[rng.startOffset] === '\xA0';
+  };
   var applyWordGrab = function (editor, rng) {
-    var r = $_24nwrb2ujm0ofuml.expandRng(editor, rng, [{ inline: true }], false);
+    var r = $_3cscnj2wjnlpaxau.expandRng(editor, rng, [{ inline: true }], shouldApplyToTrailingSpaces(rng));
     rng.setStart(r.startContainer, r.startOffset);
     rng.setEnd(r.endContainer, r.endOffset);
     editor.selection.setRng(rng);
   };
-  var annotate = function (editor, rng, annotationName, decorate, _a) {
+  var makeAnnotation = function (eDoc, _a, annotationName, decorate) {
     var _b = _a.uid, uid = _b === void 0 ? generate('mce-annotation') : _b, data = __rest(_a, ['uid']);
-    var newWrappers = [];
-    var master = Element$$1.fromTag('span');
-    $_h41qa23jm0ofui2.add(master, annotation());
-    $_cgh0m015jm0ofuao.set(master, '' + dataAnnotationId(), uid);
-    $_cgh0m015jm0ofuao.set(master, '' + dataAnnotation(), annotationName);
+    var master = Element$$1.fromTag('span', eDoc);
+    $_fes8i223jnlpax5z.add(master, annotation());
+    $_521j8z15jnlpawz7.set(master, '' + dataAnnotationId(), uid);
+    $_521j8z15jnlpawz7.set(master, '' + dataAnnotation(), annotationName);
     var _c = decorate(uid, data), _d = _c.attributes, attributes = _d === void 0 ? {} : _d, _e = _c.classes, classes = _e === void 0 ? [] : _e;
-    $_cgh0m015jm0ofuao.setAll(master, attributes);
-    $_8m07fy2hjm0ofuka.add(master, classes);
+    $_521j8z15jnlpawz7.setAll(master, attributes);
+    $_6bet4b2hjnlpax8c.add(master, classes);
+    return master;
+  };
+  var annotate = function (editor, rng, annotationName, decorate, data) {
+    var newWrappers = [];
+    var master = makeAnnotation(editor.getDoc(), data, annotationName, decorate);
     var wrapper = Cell(Option.none());
     var finishWrapper = function () {
       wrapper.set(Option.none());
     };
     var getOrOpenWrapper = function () {
       return wrapper.get().getOrThunk(function () {
-        var nu = $_ep8ir62ijm0ofukf.shallow(master);
+        var nu = $_5sdpl92ijnlpax8h.shallow(master);
         newWrappers.push(nu);
         wrapper.set(Option.some(nu));
         return nu;
@@ -68231,18 +69159,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       each(elems, processElement);
     };
     var processElement = function (elem) {
-      var ctx = context(editor, elem, 'span', $_byto2911jm0ofu9v.name(elem));
+      var ctx = context(editor, elem, 'span', $_7u5fzs11jnlpawv6.name(elem));
       switch (ctx) {
       case 'invalid-child': {
           finishWrapper();
-          var children = $_8mvo7w18jm0ofub9.children(elem);
+          var children = $_dr4ybh18jnlpawzt.children(elem);
           processElements(children);
           finishWrapper();
           break;
         }
       case 'valid': {
           var w = getOrOpenWrapper();
-          $_8gbbpa1yjm0ofugu.wrap(elem, w);
+          $_ag89ax1yjnlpax4x.wrap(elem, w);
           break;
         }
       case 'skipping':
@@ -68254,7 +69182,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var elems = map(nodes, Element$$1.fromDom);
       processElements(elems);
     };
-    $_5f1qhm3bjm0ofuqj.walk(editor.dom, rng, function (nodes) {
+    $_6wozuu3djnlpaxew.walk(editor.dom, rng, function (nodes) {
       finishWrapper();
       processNodes(nodes);
     });
@@ -68266,10 +69194,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (initialRng.collapsed) {
         applyWordGrab(editor, initialRng);
       }
-      var bookmark = $_cmrtxr2jjm0ofukj.getPersistentBookmark(editor.selection, true);
-      var rng = editor.selection.getRng();
-      annotate(editor, rng, name, settings.decorate, data);
-      editor.selection.moveToBookmark(bookmark);
+      if (editor.selection.getRng().collapsed) {
+        var wrapper = makeAnnotation(editor.getDoc(), data, name, settings.decorate);
+        $_am4twv2jjnlpax8k.set(wrapper, '\xA0');
+        editor.selection.getRng().insertNode(wrapper.dom());
+        editor.selection.select(wrapper.dom());
+      } else {
+        var bookmark = $_5l0mu32ljnlpax8x.getPersistentBookmark(editor.selection, false);
+        var rng = editor.selection.getRng();
+        annotate(editor, rng, name, settings.decorate, data);
+        editor.selection.moveToBookmark(bookmark);
+      }
     });
   };
 
@@ -68292,7 +69227,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       remove: function (name) {
         identify(editor, Option.some(name)).each(function (_a) {
           var elements = _a.elements;
-          each(elements, $_75npdb1wjm0ofugl.unwrap);
+          each(elements, $_azq8zm1wjnlpax4n.unwrap);
         });
       },
       getAll: function (name) {
@@ -68354,12 +69289,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return cleanupDomFragment(domFragment);
   };
   var listItems$1 = function (elm) {
-    return $_cvczchljm0ofu3z.grep(elm.childNodes, function (child) {
+    return $_1q1txeljnlpawsa.grep(elm.childNodes, function (child) {
       return child.nodeName === 'LI';
     });
   };
   var isPadding = function (node) {
-    return node.data === '\xA0' || $_2oph0b1rjm0ofuee.isBr(node);
+    return node.data === '\xA0' || $_fy28ei1rjnlpax2o.isBr(node);
   };
   var isListItemPadded = function (node) {
     return node && node.firstChild && node.firstChild === node.lastChild && isPadding(node.firstChild);
@@ -68403,7 +69338,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var parts = getSplit(target, rng);
     var parentElm = target.parentNode;
     parentElm.insertBefore(parts[0], target);
-    $_cvczchljm0ofu3z.each(elms, function (li) {
+    $_1q1txeljnlpawsa.each(elms, function (li) {
       parentElm.insertBefore(li, target);
     });
     parentElm.insertBefore(parts[1], target);
@@ -68412,7 +69347,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var insertBefore = function (target, elms, rootNode) {
     var parentElm = target.parentNode;
-    $_cvczchljm0ofu3z.each(elms, function (elm) {
+    $_1q1txeljnlpawsa.each(elms, function (elm) {
       parentElm.insertBefore(elm, target);
     });
     return findFirstIn(target, rootNode);
@@ -68440,7 +69375,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return insertMiddle(liTarget, liElms, rootNode, rng);
   };
-  var $_d5ywd3jjm0ofusl = {
+  var $_64vm3ljnlpaxgp = {
     isListFragment: isListFragment,
     insertAtCaret: insertAtCaret,
     isParentBlockLi: isParentBlockLi,
@@ -68448,7 +69383,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     listItems: listItems$1
   };
 
-  var each$9 = $_cvczchljm0ofu3z.each;
+  var each$9 = $_1q1txeljnlpawsa.each;
   var ElementUtils = function (dom) {
     this.compare = function (node1, node2) {
       if (node1.nodeName !== node2.nodeName) {
@@ -68491,7 +69426,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!compareObjects(dom.parseStyle(dom.getAttrib(node1, 'style')), dom.parseStyle(dom.getAttrib(node2, 'style')))) {
         return false;
       }
-      return !$_5lihpr2vjm0ofumt.isBookmarkNode(node1) && !$_5lihpr2vjm0ofumt.isBookmarkNode(node2);
+      return !$_43l8qj2xjnlpaxb1.isBookmarkNode(node1) && !$_43l8qj2xjnlpaxb1.isBookmarkNode(node2);
     };
   };
 
@@ -68505,39 +69440,39 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return children;
   };
   var removeTrailingBr = function (elm) {
-    var allBrs = $_29u9y827jm0ofuid.descendants(elm, 'br');
+    var allBrs = $_cmitir27jnlpax6e.descendants(elm, 'br');
     var brs = filter(getLastChildren(elm).slice(-1), isBr);
     if (allBrs.length === brs.length) {
-      each(brs, $_75npdb1wjm0ofugl.remove);
+      each(brs, $_azq8zm1wjnlpax4n.remove);
     }
   };
   var fillWithPaddingBr = function (elm) {
-    $_75npdb1wjm0ofugl.empty(elm);
-    $_8gbbpa1yjm0ofugu.append(elm, Element$$1.fromHtml('<br data-mce-bogus="1">'));
+    $_azq8zm1wjnlpax4n.empty(elm);
+    $_ag89ax1yjnlpax4x.append(elm, Element$$1.fromHtml('<br data-mce-bogus="1">'));
   };
   var isPaddingContents = function (elm) {
-    return $_byto2911jm0ofu9v.isText(elm) ? $_7u5bnv3ejm0ofur4.get(elm) === '\xA0' : isBr(elm);
+    return $_7u5fzs11jnlpawv6.isText(elm) ? $_dzrxgg3gjnlpaxf6.get(elm) === '\xA0' : isBr(elm);
   };
   var isPaddedElement = function (elm) {
-    return filter($_8mvo7w18jm0ofub9.children(elm), isPaddingContents).length === 1;
+    return filter($_dr4ybh18jnlpawzt.children(elm), isPaddingContents).length === 1;
   };
   var trimBlockTrailingBr = function (elm) {
-    $_8mvo7w18jm0ofub9.lastChild(elm).each(function (lastChild) {
-      $_8mvo7w18jm0ofub9.prevSibling(lastChild).each(function (lastChildPrevSibling) {
+    $_dr4ybh18jnlpawzt.lastChild(elm).each(function (lastChild) {
+      $_dr4ybh18jnlpawzt.prevSibling(lastChild).each(function (lastChildPrevSibling) {
         if (isBlock(elm) && isBr(lastChild) && isBlock(lastChildPrevSibling)) {
-          $_75npdb1wjm0ofugl.remove(lastChild);
+          $_azq8zm1wjnlpax4n.remove(lastChild);
         }
       });
     });
   };
-  var $_5n19nv3ljm0ofusy = {
+  var $_azhpc63njnlpaxgw = {
     removeTrailingBr: removeTrailingBr,
     fillWithPaddingBr: fillWithPaddingBr,
     isPaddedElement: isPaddedElement,
     trimBlockTrailingBr: trimBlockTrailingBr
   };
 
-  var makeMap$3 = $_cvczchljm0ofu3z.makeMap;
+  var makeMap$3 = $_1q1txeljnlpawsa.makeMap;
   function Writer (settings) {
     var html = [];
     var indent, indentBefore, indentAfter, encode, htmlOutput;
@@ -68545,7 +69480,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     indent = settings.indent;
     indentBefore = makeMap$3(settings.indent_before || '');
     indentAfter = makeMap$3(settings.indent_after || '');
-    encode = $_7ruegc1sjm0ofuek.getEncodeFunc(settings.entity_encoding || 'raw', settings.entities);
+    encode = $_bea7j51sjnlpax2u.getEncodeFunc(settings.entity_encoding || 'raw', settings.entities);
     htmlOutput = settings.element_format === 'html';
     return {
       start: function (name, attrs, empty) {
@@ -68723,7 +69658,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var startPos = CaretPosition$1.fromRangeStart(rng);
     var endPos = CaretPosition$1.fromRangeEnd(rng);
     var rootNode = rng.commonAncestorContainer;
-    return $_3belrm2yjm0ofun6.fromPosition(false, rootNode, endPos).map(function (newEndPos) {
+    return $_32xcvk30jnlpaxbn.fromPosition(false, rootNode, endPos).map(function (newEndPos) {
       if (!isInSameBlock(startPos, endPos, rootNode) && isInSameBlock(startPos, newEndPos, rootNode)) {
         return createRange$1(startPos.container(), startPos.offset(), newEndPos.container(), newEndPos.offset());
       } else {
@@ -68734,9 +69669,66 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var normalize = function (rng) {
     return rng.collapsed ? rng : normalizeBlockSelectionRange(rng);
   };
-  var $_a338xv3ojm0ofuts = { normalize: normalize };
+  var $_4fmn0j3qjnlpaxhi = { normalize: normalize };
 
-  var isTableCell$2 = $_2oph0b1rjm0ofuee.matchNodeNames('td th');
+  var isAfterNbsp = function (container, offset) {
+    return $_fy28ei1rjnlpax2o.isText(container) && container.nodeValue[offset - 1] === '\xA0';
+  };
+  var trimOrPadLeftRight = function (rng, html) {
+    var container, offset;
+    container = rng.startContainer;
+    offset = rng.startOffset;
+    var hasSiblingText = function (siblingName) {
+      return container[siblingName] && container[siblingName].nodeType === 3;
+    };
+    if (container.nodeType === 3) {
+      if (offset > 0) {
+        html = html.replace(/^&nbsp;/, ' ');
+      } else if (!hasSiblingText('previousSibling')) {
+        html = html.replace(/^ /, '&nbsp;');
+      }
+      if (offset < container.length) {
+        html = html.replace(/&nbsp;(<br>|)$/, ' ');
+      } else if (!hasSiblingText('nextSibling')) {
+        html = html.replace(/(&nbsp;| )(<br>|)$/, '&nbsp;');
+      }
+    }
+    return html;
+  };
+  var trimNbspAfterDeleteAndPadValue = function (rng, value) {
+    var container, offset;
+    container = rng.startContainer;
+    offset = rng.startOffset;
+    if (container.nodeType === 3 && rng.collapsed) {
+      if (container.data[offset] === '\xA0') {
+        container.deleteData(offset, 1);
+        if (!/[\u00a0| ]$/.test(value)) {
+          value += ' ';
+        }
+      } else if (container.data[offset - 1] === '\xA0') {
+        container.deleteData(offset - 1, 1);
+        if (!/[\u00a0| ]$/.test(value)) {
+          value = ' ' + value;
+        }
+      }
+    }
+    return value;
+  };
+
+  var isTableCell$2 = $_fy28ei1rjnlpax2o.matchNodeNames('td th');
+  var selectionSetContent = function (editor, content) {
+    var rng = editor.selection.getRng();
+    var container = rng.startContainer;
+    var offset = rng.startOffset;
+    if (rng.collapsed && isAfterNbsp(container, offset) && $_fy28ei1rjnlpax2o.isText(container)) {
+      container.insertData(offset - 1, ' ');
+      container.deleteData(offset, 1);
+      rng.setStart(container, offset);
+      rng.setEnd(container, offset);
+      editor.selection.setRng(rng);
+    }
+    editor.selection.setContent(content);
+  };
   var validInsertion = function (editor, value, parentNode) {
     if (parentNode.getAttribute('data-mce-bogus') === 'all') {
       parentNode.parentNode.insertBefore(editor.dom.createFragment(value), parentNode);
@@ -68746,151 +69738,113 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!node || node === node2 && node.nodeName === 'BR') {
         editor.dom.setHTML(parentNode, value);
       } else {
-        editor.selection.setContent(value);
+        selectionSetContent(editor, value);
       }
     }
   };
   var trimBrsFromTableCell = function (dom, elm) {
-    Option.from(dom.getParent(elm, 'td,th')).map(Element$$1.fromDom).each($_5n19nv3ljm0ofusy.trimBlockTrailingBr);
+    Option.from(dom.getParent(elm, 'td,th')).map(Element$$1.fromDom).each($_azhpc63njnlpaxgw.trimBlockTrailingBr);
+  };
+  var reduceInlineTextElements = function (editor, merge) {
+    var textInlineElements = editor.schema.getTextInlineElements();
+    var dom = editor.dom;
+    if (merge) {
+      var root_1 = editor.getBody(), elementUtils_1 = new ElementUtils(dom);
+      $_1q1txeljnlpawsa.each(dom.select('*[data-mce-fragment]'), function (node) {
+        for (var testNode = node.parentNode; testNode && testNode !== root_1; testNode = testNode.parentNode) {
+          if (textInlineElements[node.nodeName.toLowerCase()] && elementUtils_1.compare(testNode, node)) {
+            dom.remove(node, true);
+          }
+        }
+      });
+    }
+  };
+  var markFragmentElements = function (fragment) {
+    var node = fragment;
+    while (node = node.walk()) {
+      if (node.type === 1) {
+        node.attr('data-mce-fragment', '1');
+      }
+    }
+  };
+  var umarkFragmentElements = function (elm) {
+    $_1q1txeljnlpawsa.each(elm.getElementsByTagName('*'), function (elm) {
+      elm.removeAttribute('data-mce-fragment');
+    });
+  };
+  var isPartOfFragment = function (node) {
+    return !!node.getAttribute('data-mce-fragment');
+  };
+  var canHaveChildren = function (editor, node) {
+    return node && !editor.schema.getShortEndedElements()[node.nodeName];
+  };
+  var moveSelectionToMarker = function (editor, marker) {
+    var parentEditableFalseElm, parentBlock, nextRng;
+    var dom = editor.dom, selection = editor.selection;
+    var node, node2;
+    var getContentEditableFalseParent = function (node) {
+      var root = editor.getBody();
+      for (; node && node !== root; node = node.parentNode) {
+        if (editor.dom.getContentEditable(node) === 'false') {
+          return node;
+        }
+      }
+      return null;
+    };
+    if (!marker) {
+      return;
+    }
+    editor.selection.scrollIntoView(marker);
+    parentEditableFalseElm = getContentEditableFalseParent(marker);
+    if (parentEditableFalseElm) {
+      dom.remove(marker);
+      selection.select(parentEditableFalseElm);
+      return;
+    }
+    var rng = dom.createRng();
+    node = marker.previousSibling;
+    if (node && node.nodeType === 3) {
+      rng.setStart(node, node.nodeValue.length);
+      if (!$_cseqobajnlpawll.ie) {
+        node2 = marker.nextSibling;
+        if (node2 && node2.nodeType === 3) {
+          node.appendData(node2.data);
+          node2.parentNode.removeChild(node2);
+        }
+      }
+    } else {
+      rng.setStartBefore(marker);
+      rng.setEndBefore(marker);
+    }
+    var findNextCaretRng = function (rng) {
+      var caretPos = CaretPosition$1.fromRangeStart(rng);
+      var caretWalker = CaretWalker(editor.getBody());
+      caretPos = caretWalker.next(caretPos);
+      if (caretPos) {
+        return caretPos.toRange();
+      }
+    };
+    parentBlock = dom.getParent(marker, dom.isBlock);
+    dom.remove(marker);
+    if (parentBlock && dom.isEmpty(parentBlock)) {
+      editor.$(parentBlock).empty();
+      rng.setStart(parentBlock, 0);
+      rng.setEnd(parentBlock, 0);
+      if (!isTableCell$2(parentBlock) && !isPartOfFragment(parentBlock) && (nextRng = findNextCaretRng(rng))) {
+        rng = nextRng;
+        dom.remove(parentBlock);
+      } else {
+        dom.add(parentBlock, dom.create('br', { 'data-mce-bogus': '1' }));
+      }
+    }
+    selection.setRng(rng);
   };
   var insertHtmlAtCaret = function (editor, value, details) {
     var parser, serializer, parentNode, rootNode, fragment, args;
-    var marker, rng, node, node2, bookmarkHtml, merge;
-    var textInlineElements = editor.schema.getTextInlineElements();
+    var marker, rng, node, bookmarkHtml, merge;
     var selection = editor.selection, dom = editor.dom;
-    var trimOrPaddLeftRight = function (html) {
-      var rng, container, offset;
-      rng = selection.getRng();
-      container = rng.startContainer;
-      offset = rng.startOffset;
-      var hasSiblingText = function (siblingName) {
-        return container[siblingName] && container[siblingName].nodeType === 3;
-      };
-      if (container.nodeType === 3) {
-        if (offset > 0) {
-          html = html.replace(/^&nbsp;/, ' ');
-        } else if (!hasSiblingText('previousSibling')) {
-          html = html.replace(/^ /, '&nbsp;');
-        }
-        if (offset < container.length) {
-          html = html.replace(/&nbsp;(<br>|)$/, ' ');
-        } else if (!hasSiblingText('nextSibling')) {
-          html = html.replace(/(&nbsp;| )(<br>|)$/, '&nbsp;');
-        }
-      }
-      return html;
-    };
-    var trimNbspAfterDeleteAndPaddValue = function () {
-      var rng, container, offset;
-      rng = selection.getRng();
-      container = rng.startContainer;
-      offset = rng.startOffset;
-      if (container.nodeType === 3 && rng.collapsed) {
-        if (container.data[offset] === '\xA0') {
-          container.deleteData(offset, 1);
-          if (!/[\u00a0| ]$/.test(value)) {
-            value += ' ';
-          }
-        } else if (container.data[offset - 1] === '\xA0') {
-          container.deleteData(offset - 1, 1);
-          if (!/[\u00a0| ]$/.test(value)) {
-            value = ' ' + value;
-          }
-        }
-      }
-    };
-    var reduceInlineTextElements = function () {
-      if (merge) {
-        var root_1 = editor.getBody(), elementUtils_1 = new ElementUtils(dom);
-        $_cvczchljm0ofu3z.each(dom.select('*[data-mce-fragment]'), function (node) {
-          for (var testNode = node.parentNode; testNode && testNode !== root_1; testNode = testNode.parentNode) {
-            if (textInlineElements[node.nodeName.toLowerCase()] && elementUtils_1.compare(testNode, node)) {
-              dom.remove(node, true);
-            }
-          }
-        });
-      }
-    };
-    var markFragmentElements = function (fragment) {
-      var node = fragment;
-      while (node = node.walk()) {
-        if (node.type === 1) {
-          node.attr('data-mce-fragment', '1');
-        }
-      }
-    };
-    var umarkFragmentElements = function (elm) {
-      $_cvczchljm0ofu3z.each(elm.getElementsByTagName('*'), function (elm) {
-        elm.removeAttribute('data-mce-fragment');
-      });
-    };
-    var isPartOfFragment = function (node) {
-      return !!node.getAttribute('data-mce-fragment');
-    };
-    var canHaveChildren = function (node) {
-      return node && !editor.schema.getShortEndedElements()[node.nodeName];
-    };
-    var moveSelectionToMarker = function (marker) {
-      var parentEditableFalseElm, parentBlock, nextRng;
-      var getContentEditableFalseParent = function (node) {
-        var root = editor.getBody();
-        for (; node && node !== root; node = node.parentNode) {
-          if (editor.dom.getContentEditable(node) === 'false') {
-            return node;
-          }
-        }
-        return null;
-      };
-      if (!marker) {
-        return;
-      }
-      selection.scrollIntoView(marker);
-      parentEditableFalseElm = getContentEditableFalseParent(marker);
-      if (parentEditableFalseElm) {
-        dom.remove(marker);
-        selection.select(parentEditableFalseElm);
-        return;
-      }
-      rng = dom.createRng();
-      node = marker.previousSibling;
-      if (node && node.nodeType === 3) {
-        rng.setStart(node, node.nodeValue.length);
-        if (!$_emqeydajm0oftwm.ie) {
-          node2 = marker.nextSibling;
-          if (node2 && node2.nodeType === 3) {
-            node.appendData(node2.data);
-            node2.parentNode.removeChild(node2);
-          }
-        }
-      } else {
-        rng.setStartBefore(marker);
-        rng.setEndBefore(marker);
-      }
-      var findNextCaretRng = function (rng) {
-        var caretPos = CaretPosition$1.fromRangeStart(rng);
-        var caretWalker = CaretWalker(editor.getBody());
-        caretPos = caretWalker.next(caretPos);
-        if (caretPos) {
-          return caretPos.toRange();
-        }
-      };
-      parentBlock = dom.getParent(marker, dom.isBlock);
-      dom.remove(marker);
-      if (parentBlock && dom.isEmpty(parentBlock)) {
-        editor.$(parentBlock).empty();
-        rng.setStart(parentBlock, 0);
-        rng.setEnd(parentBlock, 0);
-        if (!isTableCell$2(parentBlock) && !isPartOfFragment(parentBlock) && (nextRng = findNextCaretRng(rng))) {
-          rng = nextRng;
-          dom.remove(parentBlock);
-        } else {
-          dom.add(parentBlock, dom.create('br', { 'data-mce-bogus': '1' }));
-        }
-      }
-      selection.setRng(rng);
-    };
     if (/^ | $/.test(value)) {
-      value = trimOrPaddLeftRight(value);
+      value = trimOrPadLeftRight(selection.getRng(), value);
     }
     parser = editor.parser;
     merge = details.merge;
@@ -68921,7 +69875,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var caretElement = rng.startContainer || (rng.parentElement ? rng.parentElement() : null);
     var body = editor.getBody();
     if (caretElement === body && selection.isCollapsed()) {
-      if (dom.isBlock(body.firstChild) && canHaveChildren(body.firstChild) && dom.isEmpty(body.firstChild)) {
+      if (dom.isBlock(body.firstChild) && canHaveChildren(editor, body.firstChild) && dom.isEmpty(body.firstChild)) {
         rng = dom.createRng();
         rng.setStart(body.firstChild, 0);
         rng.setEnd(body.firstChild, 0);
@@ -68929,9 +69883,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
     if (!selection.isCollapsed()) {
-      editor.selection.setRng($_a338xv3ojm0ofuts.normalize(editor.selection.getRng()));
+      editor.selection.setRng($_4fmn0j3qjnlpaxhi.normalize(editor.selection.getRng()));
       editor.getDoc().execCommand('Delete', false, null);
-      trimNbspAfterDeleteAndPaddValue();
+      value = trimNbspAfterDeleteAndPadValue(editor.selection.getRng(), value);
     }
     parentNode = selection.getNode();
     var parserArgs = {
@@ -68940,8 +69894,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       insert: true
     };
     fragment = parser.parse(value, parserArgs);
-    if (details.paste === true && $_d5ywd3jjm0ofusl.isListFragment(editor.schema, fragment) && $_d5ywd3jjm0ofusl.isParentBlockLi(dom, parentNode)) {
-      rng = $_d5ywd3jjm0ofusl.insertAtCaret(serializer, dom, editor.selection.getRng(), fragment);
+    if (details.paste === true && $_64vm3ljnlpaxgp.isListFragment(editor.schema, fragment) && $_64vm3ljnlpaxgp.isParentBlockLi(dom, parentNode)) {
+      rng = $_64vm3ljnlpaxgp.insertAtCaret(serializer, dom, editor.selection.getRng(), fragment);
       editor.selection.setRng(rng);
       editor.fire('SetContent', args);
       return;
@@ -68964,7 +69918,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       value = serializer.serialize(fragment);
       validInsertion(editor, value, parentNode);
     } else {
-      selection.setContent(bookmarkHtml);
+      selectionSetContent(editor, bookmarkHtml);
       parentNode = selection.getNode();
       rootNode = editor.getBody();
       if (parentNode.nodeType === 9) {
@@ -68986,8 +69940,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         dom.setOuterHTML(parentNode, value);
       }
     }
-    reduceInlineTextElements();
-    moveSelectionToMarker(dom.get('mce_marker'));
+    reduceInlineTextElements(editor, merge);
+    moveSelectionToMarker(editor, dom.get('mce_marker'));
     umarkFragmentElements(editor.getBody());
     trimBrsFromTableCell(editor.dom, editor.selection.getStart());
     editor.fire('SetContent', args);
@@ -68996,7 +69950,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var processValue = function (value) {
     var details;
     if (typeof value !== 'string') {
-      details = $_cvczchljm0ofu3z.extend({
+      details = $_1q1txeljnlpawsa.extend({
         paste: value.paste,
         data: { paste: value.paste }
       }, value);
@@ -69014,10 +69968,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var result = processValue(value);
     insertHtmlAtCaret(editor, result.content, result.details);
   };
-  var $_9xr2rv3ijm0ofusa = { insertAtCaret: insertAtCaret$1 };
+  var $_f55bk53kjnlpaxge = { insertAtCaret: insertAtCaret$1 };
 
   var sectionResult = Immutable('sections', 'settings');
-  var detection = $_4i10pfojm0ofu4r.detect();
+  var detection = $_766rx4ojnlpawtd.detect();
   var isTouch = detection.deviceType.isTouch();
   var mobilePlugins = [
     'lists',
@@ -69044,7 +69998,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getSection = function (sectionResult, name, defaults) {
     var sections = sectionResult.sections();
     var sectionSettings = sections.hasOwnProperty(name) ? sections[name] : {};
-    return $_cvczchljm0ofu3z.extend({}, defaults, sectionSettings);
+    return $_1q1txeljnlpawsa.extend({}, defaults, sectionSettings);
   };
   var hasSection = function (sectionResult, name) {
     return sectionResult.sections().hasOwnProperty(name);
@@ -69087,7 +70041,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getExternalPlugins = function (overrideSettings, settings) {
     var userDefinedExternalPlugins = settings.external_plugins ? settings.external_plugins : {};
     if (overrideSettings && overrideSettings.external_plugins) {
-      return $_cvczchljm0ofu3z.extend({}, overrideSettings.external_plugins, userDefinedExternalPlugins);
+      return $_1q1txeljnlpawsa.extend({}, overrideSettings.external_plugins, userDefinedExternalPlugins);
     } else {
       return userDefinedExternalPlugins;
     }
@@ -69100,7 +70054,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var plugins = normalizePlugins(settings.plugins);
     var platformPlugins = isTouchDevice && hasSection(sectionResult, 'mobile') ? filterMobilePlugins(plugins) : plugins;
     var combinedPlugins = combinePlugins(forcedPlugins, platformPlugins);
-    return $_cvczchljm0ofu3z.extend(settings, { plugins: combinedPlugins.join(' ') });
+    return $_1q1txeljnlpawsa.extend(settings, { plugins: combinedPlugins.join(' ') });
   };
   var isOnMobile = function (isTouchDevice, sectionResult) {
     var isInline = sectionResult.settings().inline;
@@ -69108,7 +70062,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var combineSettings = function (isTouchDevice, defaultSettings, defaultOverrideSettings, settings) {
     var sectionResult = extractSections(['mobile'], settings);
-    var extendedSettings = $_cvczchljm0ofu3z.extend(defaultSettings, defaultOverrideSettings, sectionResult.settings(), isOnMobile(isTouchDevice, sectionResult) ? getSection(sectionResult, 'mobile', defaultMobileSettings) : {}, {
+    var extendedSettings = $_1q1txeljnlpawsa.extend(defaultSettings, defaultOverrideSettings, sectionResult.settings(), isOnMobile(isTouchDevice, sectionResult) ? getSection(sectionResult, 'mobile', defaultMobileSettings) : {}, {
       validate: true,
       content_editable: sectionResult.settings().inline,
       external_plugins: getExternalPlugins(defaultOverrideSettings, sectionResult.settings())
@@ -69129,9 +70083,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       each(value.indexOf('=') > 0 ? value.split(/[;,](?![^=;,]*(?:[;,]|$))/) : value.split(','), function (val) {
         var arr = val.split('=');
         if (arr.length > 1) {
-          output[$_cvczchljm0ofu3z.trim(arr[0])] = $_cvczchljm0ofu3z.trim(arr[1]);
+          output[$_1q1txeljnlpawsa.trim(arr[0])] = $_1q1txeljnlpawsa.trim(arr[1]);
         } else {
-          output[$_cvczchljm0ofu3z.trim(arr[0])] = $_cvczchljm0ofu3z.trim(arr);
+          output[$_1q1txeljnlpawsa.trim(arr[0])] = $_1q1txeljnlpawsa.trim(arr);
         }
       });
     } else {
@@ -69174,7 +70128,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var isInlineTarget = function (editor, elm) {
     var selector = getString(editor, 'inline_boundaries_selector').getOr('a[href],code');
-    return $_bdu7ul1gjm0ofucn.is(Element$$1.fromDom(elm), selector);
+    return $_d8v5lf1gjnlpax0y.is(Element$$1.fromDom(elm), selector);
   };
   var isRtl = function (element) {
     return DOMUtils$1.DOM.getStyle(element, 'direction', true) === 'rtl' || hasStrongRtl(element.textContent);
@@ -69198,7 +70152,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var container = pos.container(), offset = pos.offset();
     if (forward) {
       if (isCaretContainerInline(container)) {
-        if ($_2oph0b1rjm0ofuee.isText(container.nextSibling)) {
+        if ($_fy28ei1rjnlpax2o.isText(container.nextSibling)) {
           return CaretPosition$1(container.nextSibling, 0);
         } else {
           return CaretPosition$1.after(container);
@@ -69208,7 +70162,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     } else {
       if (isCaretContainerInline(container)) {
-        if ($_2oph0b1rjm0ofuee.isText(container.previousSibling)) {
+        if ($_fy28ei1rjnlpax2o.isText(container.previousSibling)) {
           return CaretPosition$1(container.previousSibling, container.previousSibling.data.length);
         } else {
           return CaretPosition$1.before(container);
@@ -69220,7 +70174,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var normalizeForwards = curry(normalizePosition, true);
   var normalizeBackwards = curry(normalizePosition, false);
-  var $_2p5owi3tjm0ofuul = {
+  var $_955v2u3wjnlpaxit = {
     isInlineTarget: isInlineTarget,
     findRootInline: findRootInline,
     isRtl: isRtl,
@@ -69233,11 +70187,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var isBeforeRoot = function (rootNode) {
     return function (elm) {
-      return $_ag822a1ejm0ofuc8.eq(rootNode, Element$$1.fromDom(elm.dom().parentNode));
+      return $_5h7cor1ejnlpax0k.eq(rootNode, Element$$1.fromDom(elm.dom().parentNode));
     };
   };
   var getParentBlock$1 = function (rootNode, elm) {
-    return $_ag822a1ejm0ofuc8.contains(rootNode, elm) ? $_6b07a32ajm0ofuil.closest(elm, function (element) {
+    return $_5h7cor1ejnlpax0k.contains(rootNode, elm) ? $_cs5qmd2ajnlpax6v.closest(elm, function (element) {
       return isTextBlock(element) || isListItem(element);
     }, isBeforeRoot(rootNode)) : Option.none();
   };
@@ -69254,48 +70208,48 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var willDeleteLastPositionInElement = function (forward, fromPos, elm) {
     return liftN([
-      $_3belrm2yjm0ofun6.firstPositionIn(elm),
-      $_3belrm2yjm0ofun6.lastPositionIn(elm)
+      $_32xcvk30jnlpaxbn.firstPositionIn(elm),
+      $_32xcvk30jnlpaxbn.lastPositionIn(elm)
     ], function (firstPos, lastPos) {
-      var normalizedFirstPos = $_2p5owi3tjm0ofuul.normalizePosition(true, firstPos);
-      var normalizedLastPos = $_2p5owi3tjm0ofuul.normalizePosition(false, lastPos);
-      var normalizedFromPos = $_2p5owi3tjm0ofuul.normalizePosition(false, fromPos);
+      var normalizedFirstPos = $_955v2u3wjnlpaxit.normalizePosition(true, firstPos);
+      var normalizedLastPos = $_955v2u3wjnlpaxit.normalizePosition(false, lastPos);
+      var normalizedFromPos = $_955v2u3wjnlpaxit.normalizePosition(false, fromPos);
       if (forward) {
-        return $_3belrm2yjm0ofun6.nextPosition(elm, normalizedFromPos).map(function (nextPos) {
+        return $_32xcvk30jnlpaxbn.nextPosition(elm, normalizedFromPos).map(function (nextPos) {
           return nextPos.isEqual(normalizedLastPos) && fromPos.isEqual(normalizedFirstPos);
         }).getOr(false);
       } else {
-        return $_3belrm2yjm0ofun6.prevPosition(elm, normalizedFromPos).map(function (prevPos) {
+        return $_32xcvk30jnlpaxbn.prevPosition(elm, normalizedFromPos).map(function (prevPos) {
           return prevPos.isEqual(normalizedFirstPos) && fromPos.isEqual(normalizedLastPos);
         }).getOr(false);
       }
     }).getOr(true);
   };
-  var $_85mu9b3sjm0ofuub = {
+  var $_dfzzw73vjnlpaxik = {
     getParentBlock: getParentBlock$1,
     paddEmptyBody: paddEmptyBody,
     willDeleteLastPositionInElement: willDeleteLastPositionInElement
   };
 
   var any = function (selector) {
-    return $_6nhfso29jm0ofuij.first(selector).isSome();
+    return $_2kbu29jnlpax6t.first(selector).isSome();
   };
   var ancestor$2 = function (scope, selector, isRoot) {
-    return $_6nhfso29jm0ofuij.ancestor(scope, selector, isRoot).isSome();
+    return $_2kbu29jnlpax6t.ancestor(scope, selector, isRoot).isSome();
   };
   var sibling$3 = function (scope, selector) {
-    return $_6nhfso29jm0ofuij.sibling(scope, selector).isSome();
+    return $_2kbu29jnlpax6t.sibling(scope, selector).isSome();
   };
   var child$3 = function (scope, selector) {
-    return $_6nhfso29jm0ofuij.child(scope, selector).isSome();
+    return $_2kbu29jnlpax6t.child(scope, selector).isSome();
   };
   var descendant$2 = function (scope, selector) {
-    return $_6nhfso29jm0ofuij.descendant(scope, selector).isSome();
+    return $_2kbu29jnlpax6t.descendant(scope, selector).isSome();
   };
   var closest$2 = function (scope, selector, isRoot) {
-    return $_6nhfso29jm0ofuij.closest(scope, selector, isRoot).isSome();
+    return $_2kbu29jnlpax6t.closest(scope, selector, isRoot).isSome();
   };
-  var $_1x821u3xjm0ofuvq = {
+  var $_1kxnjb40jnlpaxjq = {
     any: any,
     ancestor: ancestor$2,
     sibling: sibling$3,
@@ -69307,20 +70261,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var hasWhitespacePreserveParent = function (rootNode, node) {
     var rootElement = Element$$1.fromDom(rootNode);
     var startNode = Element$$1.fromDom(node);
-    return $_1x821u3xjm0ofuvq.ancestor(startNode, 'pre,code', curry($_ag822a1ejm0ofuc8.eq, rootElement));
+    return $_1kxnjb40jnlpaxjq.ancestor(startNode, 'pre,code', curry($_5h7cor1ejnlpax0k.eq, rootElement));
   };
   var isWhitespace = function (rootNode, node) {
-    return $_2oph0b1rjm0ofuee.isText(node) && /^[ \t\r\n]*$/.test(node.data) && hasWhitespacePreserveParent(rootNode, node) === false;
+    return $_fy28ei1rjnlpax2o.isText(node) && /^[ \t\r\n]*$/.test(node.data) && hasWhitespacePreserveParent(rootNode, node) === false;
   };
   var isNamedAnchor = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && node.nodeName === 'A' && node.hasAttribute('name');
+    return $_fy28ei1rjnlpax2o.isElement(node) && node.nodeName === 'A' && node.hasAttribute('name');
   };
   var isContent = function (rootNode, node) {
     return isCaretCandidate(node) && isWhitespace(rootNode, node) === false || isNamedAnchor(node) || isBookmark(node);
   };
-  var isBookmark = $_2oph0b1rjm0ofuee.hasAttribute('data-mce-bookmark');
-  var isBogus$2 = $_2oph0b1rjm0ofuee.hasAttribute('data-mce-bogus');
-  var isBogusAll$1 = $_2oph0b1rjm0ofuee.hasAttributeValue('data-mce-bogus', 'all');
+  var isBookmark = $_fy28ei1rjnlpax2o.hasAttribute('data-mce-bookmark');
+  var isBogus$2 = $_fy28ei1rjnlpax2o.hasAttribute('data-mce-bogus');
+  var isBogusAll$1 = $_fy28ei1rjnlpax2o.hasAttributeValue('data-mce-bogus', 'all');
   var isEmptyNode = function (targetNode) {
     var walker, node, brCount = 0;
     if (isContent(targetNode, targetNode)) {
@@ -69340,7 +70294,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           node = walker.next();
           continue;
         }
-        if ($_2oph0b1rjm0ofuee.isBr(node)) {
+        if ($_fy28ei1rjnlpax2o.isBr(node)) {
           brCount++;
           node = walker.next();
           continue;
@@ -69356,35 +70310,35 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isEmpty$1 = function (elm) {
     return isEmptyNode(elm.dom());
   };
-  var $_5542313wjm0ofuvj = { isEmpty: isEmpty$1 };
+  var $_czpaaj3zjnlpaxjj = { isEmpty: isEmpty$1 };
 
   var BlockPosition = Immutable('block', 'position');
   var BlockBoundary = Immutable('from', 'to');
   var getBlockPosition = function (rootNode, pos) {
     var rootElm = Element$$1.fromDom(rootNode);
     var containerElm = Element$$1.fromDom(pos.container());
-    return $_85mu9b3sjm0ofuub.getParentBlock(rootElm, containerElm).map(function (block) {
+    return $_dfzzw73vjnlpaxik.getParentBlock(rootElm, containerElm).map(function (block) {
       return BlockPosition(block, pos);
     });
   };
   var isDifferentBlocks = function (blockBoundary) {
-    return $_ag822a1ejm0ofuc8.eq(blockBoundary.from().block(), blockBoundary.to().block()) === false;
+    return $_5h7cor1ejnlpax0k.eq(blockBoundary.from().block(), blockBoundary.to().block()) === false;
   };
   var hasSameParent = function (blockBoundary) {
-    return $_8mvo7w18jm0ofub9.parent(blockBoundary.from().block()).bind(function (parent1) {
-      return $_8mvo7w18jm0ofub9.parent(blockBoundary.to().block()).filter(function (parent2) {
-        return $_ag822a1ejm0ofuc8.eq(parent1, parent2);
+    return $_dr4ybh18jnlpawzt.parent(blockBoundary.from().block()).bind(function (parent1) {
+      return $_dr4ybh18jnlpawzt.parent(blockBoundary.to().block()).filter(function (parent2) {
+        return $_5h7cor1ejnlpax0k.eq(parent1, parent2);
       });
     }).isSome();
   };
   var isEditable = function (blockBoundary) {
-    return $_2oph0b1rjm0ofuee.isContentEditableFalse(blockBoundary.from().block()) === false && $_2oph0b1rjm0ofuee.isContentEditableFalse(blockBoundary.to().block()) === false;
+    return $_fy28ei1rjnlpax2o.isContentEditableFalse(blockBoundary.from().block()) === false && $_fy28ei1rjnlpax2o.isContentEditableFalse(blockBoundary.to().block()) === false;
   };
   var skipLastBr = function (rootNode, forward, blockPosition) {
-    if ($_2oph0b1rjm0ofuee.isBr(blockPosition.position().getNode()) && $_5542313wjm0ofuvj.isEmpty(blockPosition.block()) === false) {
-      return $_3belrm2yjm0ofun6.positionIn(false, blockPosition.block().dom()).bind(function (lastPositionInBlock) {
+    if ($_fy28ei1rjnlpax2o.isBr(blockPosition.position().getNode()) && $_czpaaj3zjnlpaxjj.isEmpty(blockPosition.block()) === false) {
+      return $_32xcvk30jnlpaxbn.positionIn(false, blockPosition.block().dom()).bind(function (lastPositionInBlock) {
         if (lastPositionInBlock.isEqual(blockPosition.position())) {
-          return $_3belrm2yjm0ofun6.fromPosition(forward, rootNode, lastPositionInBlock).bind(function (to) {
+          return $_32xcvk30jnlpaxbn.fromPosition(forward, rootNode, lastPositionInBlock).bind(function (to) {
             return getBlockPosition(rootNode, to);
           });
         } else {
@@ -69398,7 +70352,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var readFromRange = function (rootNode, forward, rng) {
     var fromBlockPos = getBlockPosition(rootNode, CaretPosition$1.fromRangeStart(rng));
     var toBlockPos = fromBlockPos.bind(function (blockPos) {
-      return $_3belrm2yjm0ofun6.fromPosition(forward, rootNode, blockPos.position()).bind(function (to) {
+      return $_32xcvk30jnlpaxbn.fromPosition(forward, rootNode, blockPos.position()).bind(function (to) {
         return getBlockPosition(rootNode, to).map(function (blockPos) {
           return skipLastBr(rootNode, forward, blockPos);
         });
@@ -69414,15 +70368,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var read$1 = function (rootNode, forward, rng) {
     return rng.collapsed ? readFromRange(rootNode, forward, rng) : Option.none();
   };
-  var $_2nj55k3rjm0ofutz = { read: read$1 };
+  var $_5nfp373ujnlpaxi8 = { read: read$1 };
 
   var dropLast = function (xs) {
     return xs.slice(0, -1);
   };
   var parentsUntil$1 = function (startNode, rootElm, predicate) {
-    if ($_ag822a1ejm0ofuc8.contains(rootElm, startNode)) {
-      return dropLast($_8mvo7w18jm0ofub9.parents(startNode, function (elm) {
-        return predicate(elm) || $_ag822a1ejm0ofuc8.eq(elm, rootElm);
+    if ($_5h7cor1ejnlpax0k.contains(rootElm, startNode)) {
+      return dropLast($_dr4ybh18jnlpawzt.parents(startNode, function (elm) {
+        return predicate(elm) || $_5h7cor1ejnlpax0k.eq(elm, rootElm);
       }));
     } else {
       return [];
@@ -69434,14 +70388,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var parentsAndSelf = function (startNode, rootElm) {
     return [startNode].concat(parents$1(startNode, rootElm));
   };
-  var $_2rilno3zjm0ofuw7 = {
+  var $_4b88sj42jnlpaxkd = {
     parentsUntil: parentsUntil$1,
     parents: parents$1,
     parentsAndSelf: parentsAndSelf
   };
 
   var getChildrenUntilBlockBoundary = function (block) {
-    var children = $_8mvo7w18jm0ofub9.children(block);
+    var children = $_dr4ybh18jnlpawzt.children(block);
     return findIndex(children, isBlock).fold(function () {
       return children;
     }, function (index) {
@@ -69450,59 +70404,59 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var extractChildren = function (block) {
     var children = getChildrenUntilBlockBoundary(block);
-    each(children, $_75npdb1wjm0ofugl.remove);
+    each(children, $_azq8zm1wjnlpax4n.remove);
     return children;
   };
   var removeEmptyRoot = function (rootNode, block) {
-    var parents = $_2rilno3zjm0ofuw7.parentsAndSelf(block, rootNode);
-    return find(parents.reverse(), $_5542313wjm0ofuvj.isEmpty).each($_75npdb1wjm0ofugl.remove);
+    var parents = $_4b88sj42jnlpaxkd.parentsAndSelf(block, rootNode);
+    return find(parents.reverse(), $_czpaaj3zjnlpaxjj.isEmpty).each($_azq8zm1wjnlpax4n.remove);
   };
   var isEmptyBefore = function (el) {
-    return filter($_8mvo7w18jm0ofub9.prevSiblings(el), function (el) {
-      return !$_5542313wjm0ofuvj.isEmpty(el);
+    return filter($_dr4ybh18jnlpawzt.prevSiblings(el), function (el) {
+      return !$_czpaaj3zjnlpaxjj.isEmpty(el);
     }).length === 0;
   };
   var nestedBlockMerge = function (rootNode, fromBlock, toBlock, insertionPoint) {
-    if ($_5542313wjm0ofuvj.isEmpty(toBlock)) {
-      $_5n19nv3ljm0ofusy.fillWithPaddingBr(toBlock);
-      return $_3belrm2yjm0ofun6.firstPositionIn(toBlock.dom());
+    if ($_czpaaj3zjnlpaxjj.isEmpty(toBlock)) {
+      $_azhpc63njnlpaxgw.fillWithPaddingBr(toBlock);
+      return $_32xcvk30jnlpaxbn.firstPositionIn(toBlock.dom());
     }
-    if (isEmptyBefore(insertionPoint) && $_5542313wjm0ofuvj.isEmpty(fromBlock)) {
-      $_8gbbpa1yjm0ofugu.before(insertionPoint, Element$$1.fromTag('br'));
+    if (isEmptyBefore(insertionPoint) && $_czpaaj3zjnlpaxjj.isEmpty(fromBlock)) {
+      $_ag89ax1yjnlpax4x.before(insertionPoint, Element$$1.fromTag('br'));
     }
-    var position = $_3belrm2yjm0ofun6.prevPosition(toBlock.dom(), CaretPosition$1.before(insertionPoint.dom()));
+    var position = $_32xcvk30jnlpaxbn.prevPosition(toBlock.dom(), CaretPosition$1.before(insertionPoint.dom()));
     each(extractChildren(fromBlock), function (child) {
-      $_8gbbpa1yjm0ofugu.before(insertionPoint, child);
+      $_ag89ax1yjnlpax4x.before(insertionPoint, child);
     });
     removeEmptyRoot(rootNode, fromBlock);
     return position;
   };
   var sidelongBlockMerge = function (rootNode, fromBlock, toBlock) {
-    if ($_5542313wjm0ofuvj.isEmpty(toBlock)) {
-      $_75npdb1wjm0ofugl.remove(toBlock);
-      if ($_5542313wjm0ofuvj.isEmpty(fromBlock)) {
-        $_5n19nv3ljm0ofusy.fillWithPaddingBr(fromBlock);
+    if ($_czpaaj3zjnlpaxjj.isEmpty(toBlock)) {
+      $_azq8zm1wjnlpax4n.remove(toBlock);
+      if ($_czpaaj3zjnlpaxjj.isEmpty(fromBlock)) {
+        $_azhpc63njnlpaxgw.fillWithPaddingBr(fromBlock);
       }
-      return $_3belrm2yjm0ofun6.firstPositionIn(fromBlock.dom());
+      return $_32xcvk30jnlpaxbn.firstPositionIn(fromBlock.dom());
     }
-    var position = $_3belrm2yjm0ofun6.lastPositionIn(toBlock.dom());
+    var position = $_32xcvk30jnlpaxbn.lastPositionIn(toBlock.dom());
     each(extractChildren(fromBlock), function (child) {
-      $_8gbbpa1yjm0ofugu.append(toBlock, child);
+      $_ag89ax1yjnlpax4x.append(toBlock, child);
     });
     removeEmptyRoot(rootNode, fromBlock);
     return position;
   };
   var findInsertionPoint = function (toBlock, block) {
-    var parentsAndSelf = $_2rilno3zjm0ofuw7.parentsAndSelf(block, toBlock);
+    var parentsAndSelf = $_4b88sj42jnlpaxkd.parentsAndSelf(block, toBlock);
     return Option.from(parentsAndSelf[parentsAndSelf.length - 1]);
   };
   var getInsertionPoint = function (fromBlock, toBlock) {
-    return $_ag822a1ejm0ofuc8.contains(toBlock, fromBlock) ? findInsertionPoint(toBlock, fromBlock) : Option.none();
+    return $_5h7cor1ejnlpax0k.contains(toBlock, fromBlock) ? findInsertionPoint(toBlock, fromBlock) : Option.none();
   };
   var trimBr = function (first, block) {
-    $_3belrm2yjm0ofun6.positionIn(first, block.dom()).map(function (position) {
+    $_32xcvk30jnlpaxbn.positionIn(first, block.dom()).map(function (position) {
       return position.getNode();
-    }).map(Element$$1.fromDom).filter(isBr).each($_75npdb1wjm0ofugl.remove);
+    }).map(Element$$1.fromDom).filter(isBr).each($_azq8zm1wjnlpax4n.remove);
   };
   var mergeBlockInto = function (rootNode, fromBlock, toBlock) {
     trimBr(true, fromBlock);
@@ -69512,30 +70466,30 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var mergeBlocks = function (rootNode, forward, block1, block2) {
     return forward ? mergeBlockInto(rootNode, block2, block1) : mergeBlockInto(rootNode, block1, block2);
   };
-  var $_aon4xh3yjm0ofuvt = { mergeBlocks: mergeBlocks };
+  var $_dkwg7o41jnlpaxk0 = { mergeBlocks: mergeBlocks };
 
   var backspaceDelete = function (editor, forward) {
     var position;
     var rootNode = Element$$1.fromDom(editor.getBody());
-    position = $_2nj55k3rjm0ofutz.read(rootNode.dom(), forward, editor.selection.getRng()).bind(function (blockBoundary) {
-      return $_aon4xh3yjm0ofuvt.mergeBlocks(rootNode, forward, blockBoundary.from().block(), blockBoundary.to().block());
+    position = $_5nfp373ujnlpaxi8.read(rootNode.dom(), forward, editor.selection.getRng()).bind(function (blockBoundary) {
+      return $_dkwg7o41jnlpaxk0.mergeBlocks(rootNode, forward, blockBoundary.from().block(), blockBoundary.to().block());
     });
     position.each(function (pos) {
       editor.selection.setRng(pos.toRange());
     });
     return position.isSome();
   };
-  var $_84azap3qjm0ofutw = { backspaceDelete: backspaceDelete };
+  var $_3n8adg3tjnlpaxi5 = { backspaceDelete: backspaceDelete };
 
   var deleteRangeMergeBlocks = function (rootNode, selection) {
     var rng = selection.getRng();
     return liftN([
-      $_85mu9b3sjm0ofuub.getParentBlock(rootNode, Element$$1.fromDom(rng.startContainer)),
-      $_85mu9b3sjm0ofuub.getParentBlock(rootNode, Element$$1.fromDom(rng.endContainer))
+      $_dfzzw73vjnlpaxik.getParentBlock(rootNode, Element$$1.fromDom(rng.startContainer)),
+      $_dfzzw73vjnlpaxik.getParentBlock(rootNode, Element$$1.fromDom(rng.endContainer))
     ], function (block1, block2) {
-      if ($_ag822a1ejm0ofuc8.eq(block1, block2) === false) {
+      if ($_5h7cor1ejnlpax0k.eq(block1, block2) === false) {
         rng.deleteContents();
-        $_aon4xh3yjm0ofuvt.mergeBlocks(rootNode, true, block1, block2).each(function (pos) {
+        $_dkwg7o41jnlpaxk0.mergeBlocks(rootNode, true, block1, block2).each(function (pos) {
           selection.setRng(pos.toRange());
         });
         return true;
@@ -69546,15 +70500,15 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isRawNodeInTable = function (root, rawNode) {
     var node = Element$$1.fromDom(rawNode);
-    var isRoot = curry($_ag822a1ejm0ofuc8.eq, root);
-    return $_6b07a32ajm0ofuil.ancestor(node, isTableCell, isRoot).isSome();
+    var isRoot = curry($_5h7cor1ejnlpax0k.eq, root);
+    return $_cs5qmd2ajnlpax6v.ancestor(node, isTableCell, isRoot).isSome();
   };
   var isSelectionInTable = function (root, rng) {
     return isRawNodeInTable(root, rng.startContainer) || isRawNodeInTable(root, rng.endContainer);
   };
   var isEverythingSelected = function (root, rng) {
-    var noPrevious = $_3belrm2yjm0ofun6.prevPosition(root.dom(), CaretPosition$1.fromRangeStart(rng)).isNone();
-    var noNext = $_3belrm2yjm0ofun6.nextPosition(root.dom(), CaretPosition$1.fromRangeEnd(rng)).isNone();
+    var noPrevious = $_32xcvk30jnlpaxbn.prevPosition(root.dom(), CaretPosition$1.fromRangeStart(rng)).isNone();
+    var noNext = $_32xcvk30jnlpaxbn.nextPosition(root.dom(), CaretPosition$1.fromRangeEnd(rng)).isNone();
     return !isSelectionInTable(root, rng) && noPrevious && noNext;
   };
   var emptyEditor = function (editor) {
@@ -69570,7 +70524,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var backspaceDelete$1 = function (editor, forward) {
     return editor.selection.isCollapsed() ? false : deleteRange(editor);
   };
-  var $_5cqhe240jm0ofuwd = { backspaceDelete: backspaceDelete$1 };
+  var $_f5evyu43jnlpaxki = { backspaceDelete: backspaceDelete$1 };
 
   var generate$1 = function (cases) {
     if (!isArray(cases)) {
@@ -69650,7 +70604,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isAtContentEditableBlockCaret = function (forward, from) {
     var elm = from.getNode(forward === false);
     var caretLocation = forward ? 'after' : 'before';
-    return $_2oph0b1rjm0ofuee.isElement(elm) && elm.getAttribute('data-mce-caret') === caretLocation;
+    return $_fy28ei1rjnlpax2o.isElement(elm) && elm.getAttribute('data-mce-caret') === caretLocation;
   };
   var isDeleteFromCefDifferentBlocks = function (root, forward, from, to) {
     var inSameBlock = function (elm) {
@@ -69662,21 +70616,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var deleteEmptyBlockOrMoveToCef = function (root, forward, from, to) {
     var toCefElm = to.getNode(forward === false);
-    return $_85mu9b3sjm0ofuub.getParentBlock(Element$$1.fromDom(root), Element$$1.fromDom(from.getNode())).map(function (blockElm) {
-      return $_5542313wjm0ofuvj.isEmpty(blockElm) ? DeleteAction.remove(blockElm.dom()) : DeleteAction.moveToElement(toCefElm);
+    return $_dfzzw73vjnlpaxik.getParentBlock(Element$$1.fromDom(root), Element$$1.fromDom(from.getNode())).map(function (blockElm) {
+      return $_czpaaj3zjnlpaxjj.isEmpty(blockElm) ? DeleteAction.remove(blockElm.dom()) : DeleteAction.moveToElement(toCefElm);
     }).orThunk(function () {
       return Option.some(DeleteAction.moveToElement(toCefElm));
     });
   };
   var findCefPosition = function (root, forward, from) {
-    return $_3belrm2yjm0ofun6.fromPosition(forward, root, from).bind(function (to) {
+    return $_32xcvk30jnlpaxbn.fromPosition(forward, root, from).bind(function (to) {
       if (isCompoundElement(to.getNode())) {
         return Option.none();
       } else if (isDeleteFromCefDifferentBlocks(root, forward, from, to)) {
         return Option.none();
-      } else if (forward && $_2oph0b1rjm0ofuee.isContentEditableFalse(to.getNode())) {
+      } else if (forward && $_fy28ei1rjnlpax2o.isContentEditableFalse(to.getNode())) {
         return deleteEmptyBlockOrMoveToCef(root, forward, from, to);
-      } else if (forward === false && $_2oph0b1rjm0ofuee.isContentEditableFalse(to.getNode(true))) {
+      } else if (forward === false && $_fy28ei1rjnlpax2o.isContentEditableFalse(to.getNode(true))) {
         return deleteEmptyBlockOrMoveToCef(root, forward, from, to);
       } else if (forward && isAfterContentEditableFalse(from)) {
         return Option.some(DeleteAction.moveToPosition(to));
@@ -69688,9 +70642,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var getContentEditableBlockAction = function (forward, elm) {
-    if (forward && $_2oph0b1rjm0ofuee.isContentEditableFalse(elm.nextSibling)) {
+    if (forward && $_fy28ei1rjnlpax2o.isContentEditableFalse(elm.nextSibling)) {
       return Option.some(DeleteAction.moveToElement(elm.nextSibling));
-    } else if (forward === false && $_2oph0b1rjm0ofuee.isContentEditableFalse(elm.previousSibling)) {
+    } else if (forward === false && $_fy28ei1rjnlpax2o.isContentEditableFalse(elm.previousSibling)) {
       return Option.some(DeleteAction.moveToElement(elm.previousSibling));
     } else {
       return Option.none();
@@ -69741,34 +70695,34 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return needsReposition(pos, elm) ? CaretPosition$1(pos.container(), pos.offset() - 1) : pos;
   };
   var beforeOrStartOf = function (node) {
-    return $_2oph0b1rjm0ofuee.isText(node) ? CaretPosition$1(node, 0) : CaretPosition$1.before(node);
+    return $_fy28ei1rjnlpax2o.isText(node) ? CaretPosition$1(node, 0) : CaretPosition$1.before(node);
   };
   var afterOrEndOf = function (node) {
-    return $_2oph0b1rjm0ofuee.isText(node) ? CaretPosition$1(node, node.data.length) : CaretPosition$1.after(node);
+    return $_fy28ei1rjnlpax2o.isText(node) ? CaretPosition$1(node, node.data.length) : CaretPosition$1.after(node);
   };
   var getPreviousSiblingCaretPosition = function (elm) {
     if (isCaretCandidate(elm.previousSibling)) {
       return Option.some(afterOrEndOf(elm.previousSibling));
     } else {
-      return elm.previousSibling ? $_3belrm2yjm0ofun6.lastPositionIn(elm.previousSibling) : Option.none();
+      return elm.previousSibling ? $_32xcvk30jnlpaxbn.lastPositionIn(elm.previousSibling) : Option.none();
     }
   };
   var getNextSiblingCaretPosition = function (elm) {
     if (isCaretCandidate(elm.nextSibling)) {
       return Option.some(beforeOrStartOf(elm.nextSibling));
     } else {
-      return elm.nextSibling ? $_3belrm2yjm0ofun6.firstPositionIn(elm.nextSibling) : Option.none();
+      return elm.nextSibling ? $_32xcvk30jnlpaxbn.firstPositionIn(elm.nextSibling) : Option.none();
     }
   };
   var findCaretPositionBackwardsFromElm = function (rootElement, elm) {
     var startPosition = CaretPosition$1.before(elm.previousSibling ? elm.previousSibling : elm.parentNode);
-    return $_3belrm2yjm0ofun6.prevPosition(rootElement, startPosition).fold(function () {
-      return $_3belrm2yjm0ofun6.nextPosition(rootElement, CaretPosition$1.after(elm));
+    return $_32xcvk30jnlpaxbn.prevPosition(rootElement, startPosition).fold(function () {
+      return $_32xcvk30jnlpaxbn.nextPosition(rootElement, CaretPosition$1.after(elm));
     }, Option.some);
   };
   var findCaretPositionForwardsFromElm = function (rootElement, elm) {
-    return $_3belrm2yjm0ofun6.nextPosition(rootElement, CaretPosition$1.after(elm)).fold(function () {
-      return $_3belrm2yjm0ofun6.prevPosition(rootElement, CaretPosition$1.before(elm));
+    return $_32xcvk30jnlpaxbn.nextPosition(rootElement, CaretPosition$1.after(elm)).fold(function () {
+      return $_32xcvk30jnlpaxbn.prevPosition(rootElement, CaretPosition$1.before(elm));
     }, Option.some);
   };
   var findCaretPositionBackwards = function (rootElement, elm) {
@@ -69804,13 +70758,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
   var isBlock$2 = function (editor, elm) {
-    return elm && editor.schema.getBlockElements().hasOwnProperty($_byto2911jm0ofu9v.name(elm));
+    return elm && editor.schema.getBlockElements().hasOwnProperty($_7u5fzs11jnlpawv6.name(elm));
   };
   var paddEmptyBlock = function (elm) {
-    if ($_5542313wjm0ofuvj.isEmpty(elm)) {
+    if ($_czpaaj3zjnlpaxjj.isEmpty(elm)) {
       var br = Element$$1.fromHtml('<br data-mce-bogus="1">');
-      $_75npdb1wjm0ofugl.empty(elm);
-      $_8gbbpa1yjm0ofugu.append(elm, br);
+      $_azq8zm1wjnlpax4n.empty(elm);
+      $_ag89ax1yjnlpax4x.append(elm, br);
       return Option.some(CaretPosition$1.before(br.dom()));
     } else {
       return Option.none();
@@ -69818,35 +70772,35 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var deleteNormalized = function (elm, afterDeletePosOpt) {
     return liftN([
-      $_8mvo7w18jm0ofub9.prevSibling(elm),
-      $_8mvo7w18jm0ofub9.nextSibling(elm),
+      $_dr4ybh18jnlpawzt.prevSibling(elm),
+      $_dr4ybh18jnlpawzt.nextSibling(elm),
       afterDeletePosOpt
     ], function (prev, next, afterDeletePos) {
       var offset;
       var prevNode = prev.dom();
       var nextNode = next.dom();
-      if ($_2oph0b1rjm0ofuee.isText(prevNode) && $_2oph0b1rjm0ofuee.isText(nextNode)) {
+      if ($_fy28ei1rjnlpax2o.isText(prevNode) && $_fy28ei1rjnlpax2o.isText(nextNode)) {
         offset = prevNode.data.length;
         prevNode.appendData(nextNode.data);
-        $_75npdb1wjm0ofugl.remove(next);
-        $_75npdb1wjm0ofugl.remove(elm);
+        $_azq8zm1wjnlpax4n.remove(next);
+        $_azq8zm1wjnlpax4n.remove(elm);
         if (afterDeletePos.container() === nextNode) {
           return CaretPosition$1(prevNode, offset);
         } else {
           return afterDeletePos;
         }
       } else {
-        $_75npdb1wjm0ofugl.remove(elm);
+        $_azq8zm1wjnlpax4n.remove(elm);
         return afterDeletePos;
       }
     }).orThunk(function () {
-      $_75npdb1wjm0ofugl.remove(elm);
+      $_azq8zm1wjnlpax4n.remove(elm);
       return afterDeletePosOpt;
     });
   };
   var deleteElement = function (editor, forward, elm) {
     var afterDeletePos = findCaretPosOutsideElmAfterDelete(forward, editor.getBody(), elm.dom());
-    var parentBlock = $_6b07a32ajm0ofuil.ancestor(elm, curry(isBlock$2, editor), eqRawNode(editor.getBody()));
+    var parentBlock = $_cs5qmd2ajnlpax6v.ancestor(elm, curry(isBlock$2, editor), eqRawNode(editor.getBody()));
     var normalizedAfterDeletePos = deleteNormalized(elm, afterDeletePos);
     if (editor.dom.isEmpty(editor.getBody())) {
       editor.setContent('');
@@ -69859,12 +70813,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     }
   };
-  var $_9pvoj844jm0ofuxf = { deleteElement: deleteElement };
+  var $_ezizyx47jnlpaxle = { deleteElement: deleteElement };
 
   var deleteElement$1 = function (editor, forward) {
     return function (element) {
       editor._selectionOverrides.hideFakeCaret();
-      $_9pvoj844jm0ofuxf.deleteElement(editor, forward, Element$$1.fromDom(element));
+      $_ezizyx47jnlpaxle.deleteElement(editor, forward, Element$$1.fromDom(element));
       return true;
     };
   };
@@ -69888,14 +70842,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return result.getOr(false);
   };
   var deleteOffscreenSelection = function (rootElement) {
-    each($_29u9y827jm0ofuid.descendants(rootElement, '.mce-offscreen-selection'), $_75npdb1wjm0ofugl.remove);
+    each($_cmitir27jnlpax6e.descendants(rootElement, '.mce-offscreen-selection'), $_azq8zm1wjnlpax4n.remove);
   };
   var backspaceDeleteRange = function (editor, forward) {
     var selectedElement = editor.selection.getNode();
-    if ($_2oph0b1rjm0ofuee.isContentEditableFalse(selectedElement)) {
+    if ($_fy28ei1rjnlpax2o.isContentEditableFalse(selectedElement)) {
       deleteOffscreenSelection(Element$$1.fromDom(editor.getBody()));
-      $_9pvoj844jm0ofuxf.deleteElement(editor, forward, Element$$1.fromDom(editor.selection.getNode()));
-      $_85mu9b3sjm0ofuub.paddEmptyBody(editor);
+      $_ezizyx47jnlpaxle.deleteElement(editor, forward, Element$$1.fromDom(editor.selection.getNode()));
+      $_dfzzw73vjnlpaxik.paddEmptyBody(editor);
       return true;
     } else {
       return false;
@@ -69903,7 +70857,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getContentEditableRoot = function (root, node) {
     while (node && node !== root) {
-      if ($_2oph0b1rjm0ofuee.isContentEditableTrue(node) || $_2oph0b1rjm0ofuee.isContentEditableFalse(node)) {
+      if ($_fy28ei1rjnlpax2o.isContentEditableTrue(node) || $_fy28ei1rjnlpax2o.isContentEditableFalse(node)) {
         return node;
       }
       node = node.parentNode;
@@ -69913,7 +70867,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var paddEmptyElement = function (editor) {
     var br;
     var ceRoot = getContentEditableRoot(editor.getBody(), editor.selection.getNode());
-    if ($_2oph0b1rjm0ofuee.isContentEditableTrue(ceRoot) && editor.dom.isBlock(ceRoot) && editor.dom.isEmpty(ceRoot)) {
+    if ($_fy28ei1rjnlpax2o.isContentEditableTrue(ceRoot) && editor.dom.isBlock(ceRoot) && editor.dom.isEmpty(ceRoot)) {
       br = editor.dom.create('br', { 'data-mce-bogus': '1' });
       editor.dom.setHTML(ceRoot, '');
       ceRoot.appendChild(br);
@@ -69928,34 +70882,34 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return backspaceDeleteRange(editor, forward);
     }
   };
-  var $_a427rq41jm0ofuwm = {
+  var $_jcgv344jnlpaxks = {
     backspaceDelete: backspaceDelete$2,
     paddEmptyElement: paddEmptyElement
   };
 
-  var isText$8 = $_2oph0b1rjm0ofuee.isText;
+  var isText$8 = $_fy28ei1rjnlpax2o.isText;
   var startsWithCaretContainer$1 = function (node) {
-    return isText$8(node) && node.data[0] === $_2bohar2pjm0ofulx.ZWSP;
+    return isText$8(node) && node.data[0] === $_90hfb72rjnlpaxae.ZWSP;
   };
   var endsWithCaretContainer$1 = function (node) {
-    return isText$8(node) && node.data[node.data.length - 1] === $_2bohar2pjm0ofulx.ZWSP;
+    return isText$8(node) && node.data[node.data.length - 1] === $_90hfb72rjnlpaxae.ZWSP;
   };
   var createZwsp = function (node) {
-    return node.ownerDocument.createTextNode($_2bohar2pjm0ofulx.ZWSP);
+    return node.ownerDocument.createTextNode($_90hfb72rjnlpaxae.ZWSP);
   };
   var insertBefore$1 = function (node) {
     if (isText$8(node.previousSibling)) {
       if (endsWithCaretContainer$1(node.previousSibling)) {
         return node.previousSibling;
       } else {
-        node.previousSibling.appendData($_2bohar2pjm0ofulx.ZWSP);
+        node.previousSibling.appendData($_90hfb72rjnlpaxae.ZWSP);
         return node.previousSibling;
       }
     } else if (isText$8(node)) {
       if (startsWithCaretContainer$1(node)) {
         return node;
       } else {
-        node.insertData(0, $_2bohar2pjm0ofulx.ZWSP);
+        node.insertData(0, $_90hfb72rjnlpaxae.ZWSP);
         return node;
       }
     } else {
@@ -69969,14 +70923,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (startsWithCaretContainer$1(node.nextSibling)) {
         return node.nextSibling;
       } else {
-        node.nextSibling.insertData(0, $_2bohar2pjm0ofulx.ZWSP);
+        node.nextSibling.insertData(0, $_90hfb72rjnlpaxae.ZWSP);
         return node.nextSibling;
       }
     } else if (isText$8(node)) {
       if (endsWithCaretContainer$1(node)) {
         return node;
       } else {
-        node.appendData($_2bohar2pjm0ofulx.ZWSP);
+        node.appendData($_90hfb72rjnlpaxae.ZWSP);
         return node;
       }
     } else {
@@ -69996,7 +70950,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var insertInlineAfter = curry(insertInline$1, false);
 
   var insertInlinePos = function (pos, before) {
-    if ($_2oph0b1rjm0ofuee.isText(pos.container())) {
+    if ($_fy28ei1rjnlpax2o.isText(pos.container())) {
       return insertInline$1(before, pos.container());
     } else {
       return insertInline$1(before, pos.getNode());
@@ -70008,14 +70962,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var renderCaret = function (caret, location) {
     return location.fold(function (element) {
-      $_av1yxy31jm0ofuo8.remove(caret.get());
+      $_ctzulb33jnlpaxck.remove(caret.get());
       var text = insertInlineBefore(element);
       caret.set(text);
       return Option.some(CaretPosition$1(text, text.length - 1));
     }, function (element) {
-      return $_3belrm2yjm0ofun6.firstPositionIn(element).map(function (pos) {
+      return $_32xcvk30jnlpaxbn.firstPositionIn(element).map(function (pos) {
         if (!isPosCaretContainer(pos, caret)) {
-          $_av1yxy31jm0ofuo8.remove(caret.get());
+          $_ctzulb33jnlpaxck.remove(caret.get());
           var text = insertInlinePos(pos, true);
           caret.set(text);
           return CaretPosition$1(text, 1);
@@ -70024,9 +70978,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       });
     }, function (element) {
-      return $_3belrm2yjm0ofun6.lastPositionIn(element).map(function (pos) {
+      return $_32xcvk30jnlpaxbn.lastPositionIn(element).map(function (pos) {
         if (!isPosCaretContainer(pos, caret)) {
-          $_av1yxy31jm0ofuo8.remove(caret.get());
+          $_ctzulb33jnlpaxck.remove(caret.get());
           var text = insertInlinePos(pos, false);
           caret.set(text);
           return CaretPosition$1(text, text.length - 1);
@@ -70035,13 +70989,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       });
     }, function (element) {
-      $_av1yxy31jm0ofuo8.remove(caret.get());
+      $_ctzulb33jnlpaxck.remove(caret.get());
       var text = insertInlineAfter(element);
       caret.set(text);
       return Option.some(CaretPosition$1(text, 1));
     });
   };
-  var $_9m9p4a46jm0ofuy6 = { renderCaret: renderCaret };
+  var $_7h17zm49jnlpaxma = { renderCaret: renderCaret };
 
   var evaluateUntil = function (fns, args) {
     for (var i = 0; i < fns.length; i++) {
@@ -70052,7 +71006,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return Option.none();
   };
-  var $_cpffbw49jm0ofuyr = { evaluateUntil: evaluateUntil };
+  var $_3eehvl4cjnlpaxms = { evaluateUntil: evaluateUntil };
 
   var Location = Adt.generate([
     { before: ['element'] },
@@ -70065,10 +71019,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return parentBlock ? parentBlock : rootNode;
   };
   var before$3 = function (isInlineTarget, rootNode, pos) {
-    var nPos = $_2p5owi3tjm0ofuul.normalizeForwards(pos);
+    var nPos = $_955v2u3wjnlpaxit.normalizeForwards(pos);
     var scope = rescope(rootNode, nPos.container());
-    return $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, scope, nPos).fold(function () {
-      return $_3belrm2yjm0ofun6.nextPosition(scope, nPos).bind(curry($_2p5owi3tjm0ofuul.findRootInline, isInlineTarget, scope)).map(function (inline) {
+    return $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, scope, nPos).fold(function () {
+      return $_32xcvk30jnlpaxbn.nextPosition(scope, nPos).bind(curry($_955v2u3wjnlpaxit.findRootInline, isInlineTarget, scope)).map(function (inline) {
         return Location.before(inline);
       });
     }, Option.none);
@@ -70077,36 +71031,36 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return getParentCaretContainer(rootNode, elm) === null;
   };
   var findInsideRootInline = function (isInlineTarget, rootNode, pos) {
-    return $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, rootNode, pos).filter(curry(isNotInsideFormatCaretContainer, rootNode));
+    return $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, rootNode, pos).filter(curry(isNotInsideFormatCaretContainer, rootNode));
   };
   var start = function (isInlineTarget, rootNode, pos) {
-    var nPos = $_2p5owi3tjm0ofuul.normalizeBackwards(pos);
+    var nPos = $_955v2u3wjnlpaxit.normalizeBackwards(pos);
     return findInsideRootInline(isInlineTarget, rootNode, nPos).bind(function (inline) {
-      var prevPos = $_3belrm2yjm0ofun6.prevPosition(inline, nPos);
+      var prevPos = $_32xcvk30jnlpaxbn.prevPosition(inline, nPos);
       return prevPos.isNone() ? Option.some(Location.start(inline)) : Option.none();
     });
   };
   var end = function (isInlineTarget, rootNode, pos) {
-    var nPos = $_2p5owi3tjm0ofuul.normalizeForwards(pos);
+    var nPos = $_955v2u3wjnlpaxit.normalizeForwards(pos);
     return findInsideRootInline(isInlineTarget, rootNode, nPos).bind(function (inline) {
-      var nextPos = $_3belrm2yjm0ofun6.nextPosition(inline, nPos);
+      var nextPos = $_32xcvk30jnlpaxbn.nextPosition(inline, nPos);
       return nextPos.isNone() ? Option.some(Location.end(inline)) : Option.none();
     });
   };
   var after$3 = function (isInlineTarget, rootNode, pos) {
-    var nPos = $_2p5owi3tjm0ofuul.normalizeBackwards(pos);
+    var nPos = $_955v2u3wjnlpaxit.normalizeBackwards(pos);
     var scope = rescope(rootNode, nPos.container());
-    return $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, scope, nPos).fold(function () {
-      return $_3belrm2yjm0ofun6.prevPosition(scope, nPos).bind(curry($_2p5owi3tjm0ofuul.findRootInline, isInlineTarget, scope)).map(function (inline) {
+    return $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, scope, nPos).fold(function () {
+      return $_32xcvk30jnlpaxbn.prevPosition(scope, nPos).bind(curry($_955v2u3wjnlpaxit.findRootInline, isInlineTarget, scope)).map(function (inline) {
         return Location.after(inline);
       });
     }, Option.none);
   };
   var isValidLocation = function (location) {
-    return $_2p5owi3tjm0ofuul.isRtl(getElement(location)) === false;
+    return $_955v2u3wjnlpaxit.isRtl(getElement(location)) === false;
   };
   var readLocation = function (isInlineTarget, rootNode, pos) {
-    var location = $_cpffbw49jm0ofuyr.evaluateUntil([
+    var location = $_3eehvl4cjnlpaxms.evaluateUntil([
       before$3,
       start,
       end,
@@ -70135,10 +71089,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var betweenInlines = function (forward, isInlineTarget, rootNode, from, to, location) {
     return liftN([
-      $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, rootNode, from),
-      $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, rootNode, to)
+      $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, rootNode, from),
+      $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, rootNode, to)
     ], function (fromInline, toInline) {
-      if (fromInline !== toInline && $_2p5owi3tjm0ofuul.hasSameParentBlock(rootNode, fromInline, toInline)) {
+      if (fromInline !== toInline && $_955v2u3wjnlpaxit.hasSameParentBlock(rootNode, fromInline, toInline)) {
         return Location.after(forward ? fromInline : toInline);
       } else {
         return location;
@@ -70151,8 +71105,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var findLocationTraverse = function (forward, isInlineTarget, rootNode, fromLocation, pos) {
-    var from = $_2p5owi3tjm0ofuul.normalizePosition(forward, pos);
-    var to = $_3belrm2yjm0ofun6.fromPosition(forward, rootNode, from).map(curry($_2p5owi3tjm0ofuul.normalizePosition, forward));
+    var from = $_955v2u3wjnlpaxit.normalizePosition(forward, pos);
+    var to = $_32xcvk30jnlpaxbn.fromPosition(forward, rootNode, from).map(curry($_955v2u3wjnlpaxit.normalizePosition, forward));
     var location = to.fold(function () {
       return fromLocation.map(outside);
     }, function (to) {
@@ -70168,13 +71122,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var findLocation = function (forward, isInlineTarget, rootNode, pos) {
-    var from = $_2p5owi3tjm0ofuul.normalizePosition(forward, pos);
+    var from = $_955v2u3wjnlpaxit.normalizePosition(forward, pos);
     var fromLocation = readLocation(isInlineTarget, rootNode, from);
     return readLocation(isInlineTarget, rootNode, from).bind(curry(findLocationSimple, forward)).orThunk(function () {
       return findLocationTraverse(forward, isInlineTarget, rootNode, fromLocation, pos);
     });
   };
-  var $_g6ejg48jm0ofuyh = {
+  var $_1wxx4j4bjnlpaxmj = {
     readLocation: readLocation,
     findLocation: findLocation,
     prevLocation: curry(findLocation, false),
@@ -70206,7 +71160,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return false;
     }
   };
-  var $_613ovv4bjm0ofuz7 = {
+  var $_8umecq4ejnlpaxn3 = {
     hasSelectionModifyApi: hasSelectionModifyApi,
     moveByWord: moveByWord
   };
@@ -70228,7 +71182,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var renderCaretLocation = function (editor, caret, location) {
-    return $_9m9p4a46jm0ofuy6.renderCaret(caret, location).map(function (pos) {
+    return $_7h17zm49jnlpaxma.renderCaret(caret, location).map(function (pos) {
       setCaretPosition(editor, pos);
       return location;
     });
@@ -70236,8 +71190,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var findLocation$1 = function (editor, caret, forward) {
     var rootNode = editor.getBody();
     var from = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
-    var location = $_g6ejg48jm0ofuyh.findLocation(forward, isInlineTarget, rootNode, from);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
+    var location = $_1wxx4j4bjnlpaxmj.findLocation(forward, isInlineTarget, rootNode, from);
     return location.bind(function (location) {
       return renderCaretLocation(editor, caret, location);
     });
@@ -70251,8 +71205,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var safeRemoveCaretContainer = function (editor, caret) {
     if (editor.selection.isCollapsed() && editor.composing !== true && caret.get()) {
       var pos = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-      if (CaretPosition$1.isTextPosition(pos) && $_2p5owi3tjm0ofuul.isAtZwsp(pos) === false) {
-        setCaretPosition(editor, $_av1yxy31jm0ofuo8.removeAndReposition(caret.get(), pos));
+      if (CaretPosition$1.isTextPosition(pos) && $_955v2u3wjnlpaxit.isAtZwsp(pos) === false) {
+        setCaretPosition(editor, $_ctzulb33jnlpaxck.removeAndReposition(caret.get(), pos));
         caret.set(null);
       }
     }
@@ -70262,7 +71216,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var inlines = filter(elms, isInlineTarget);
       each(inlines, function (inline) {
         var pos = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-        $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, editor.getBody(), pos).bind(function (location) {
+        $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, editor.getBody(), pos).bind(function (location) {
           return renderCaretLocation(editor, caret, location);
         });
       });
@@ -70275,12 +71229,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var moveWord = function (forward, editor, caret) {
     return function () {
-      return isFeatureEnabled(editor) ? $_613ovv4bjm0ofuz7.moveByWord(forward, editor) : false;
+      return isFeatureEnabled(editor) ? $_8umecq4ejnlpaxn3.moveByWord(forward, editor) : false;
     };
   };
   var setupSelectedState = function (editor) {
     var caret = Cell(null);
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
     editor.on('NodeChange', function (e) {
       if (isFeatureEnabled(editor)) {
         toggleInlines(isInlineTarget, editor.dom, e.parents);
@@ -70292,7 +71246,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var moveNextWord = curry(moveWord, true);
   var movePrevWord = curry(moveWord, false);
-  var $_5tn0iz4ajm0ofuyu = {
+  var $_1971nm4djnlpaxmv = {
     move: move,
     moveNextWord: moveNextWord,
     movePrevWord: movePrevWord,
@@ -70311,31 +71265,31 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var hasOnlyTwoOrLessPositionsLeft = function (elm) {
     return liftN([
-      $_3belrm2yjm0ofun6.firstPositionIn(elm),
-      $_3belrm2yjm0ofun6.lastPositionIn(elm)
+      $_32xcvk30jnlpaxbn.firstPositionIn(elm),
+      $_32xcvk30jnlpaxbn.lastPositionIn(elm)
     ], function (firstPos, lastPos) {
-      var normalizedFirstPos = $_2p5owi3tjm0ofuul.normalizePosition(true, firstPos);
-      var normalizedLastPos = $_2p5owi3tjm0ofuul.normalizePosition(false, lastPos);
-      return $_3belrm2yjm0ofun6.nextPosition(elm, normalizedFirstPos).map(function (pos) {
+      var normalizedFirstPos = $_955v2u3wjnlpaxit.normalizePosition(true, firstPos);
+      var normalizedLastPos = $_955v2u3wjnlpaxit.normalizePosition(false, lastPos);
+      return $_32xcvk30jnlpaxbn.nextPosition(elm, normalizedFirstPos).map(function (pos) {
         return pos.isEqual(normalizedLastPos);
       }).getOr(true);
     }).getOr(true);
   };
   var setCaretLocation = function (editor, caret) {
     return function (location$$1) {
-      return $_9m9p4a46jm0ofuy6.renderCaret(caret, location$$1).map(function (pos) {
-        $_5tn0iz4ajm0ofuyu.setCaretPosition(editor, pos);
+      return $_7h17zm49jnlpaxma.renderCaret(caret, location$$1).map(function (pos) {
+        $_1971nm4djnlpaxmv.setCaretPosition(editor, pos);
         return true;
       }).getOr(false);
     };
   };
   var deleteFromTo = function (editor, caret, from, to) {
     var rootNode = editor.getBody();
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
     editor.undoManager.ignore(function () {
       editor.selection.setRng(rangeFromPositions(from, to));
       editor.execCommand('Delete');
-      $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, rootNode, CaretPosition$1.fromRangeStart(editor.selection.getRng())).map($_g6ejg48jm0ofuyh.inside).map(setCaretLocation(editor, caret));
+      $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, rootNode, CaretPosition$1.fromRangeStart(editor.selection.getRng())).map($_1wxx4j4bjnlpaxmj.inside).map(setCaretLocation(editor, caret));
     });
     editor.nodeChanged();
   };
@@ -70345,23 +71299,23 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var backspaceDeleteCollapsed = function (editor, caret, forward, from) {
     var rootNode = rescope$1(editor.getBody(), from.container());
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
-    var fromLocation = $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, rootNode, from);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
+    var fromLocation = $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, rootNode, from);
     return fromLocation.bind(function (location$$1) {
       if (forward) {
-        return location$$1.fold(constant(Option.some($_g6ejg48jm0ofuyh.inside(location$$1))), Option.none, constant(Option.some($_g6ejg48jm0ofuyh.outside(location$$1))), Option.none);
+        return location$$1.fold(constant(Option.some($_1wxx4j4bjnlpaxmj.inside(location$$1))), Option.none, constant(Option.some($_1wxx4j4bjnlpaxmj.outside(location$$1))), Option.none);
       } else {
-        return location$$1.fold(Option.none, constant(Option.some($_g6ejg48jm0ofuyh.outside(location$$1))), Option.none, constant(Option.some($_g6ejg48jm0ofuyh.inside(location$$1))));
+        return location$$1.fold(Option.none, constant(Option.some($_1wxx4j4bjnlpaxmj.outside(location$$1))), Option.none, constant(Option.some($_1wxx4j4bjnlpaxmj.inside(location$$1))));
       }
     }).map(setCaretLocation(editor, caret)).getOrThunk(function () {
-      var toPosition = $_3belrm2yjm0ofun6.navigate(forward, rootNode, from);
+      var toPosition = $_32xcvk30jnlpaxbn.navigate(forward, rootNode, from);
       var toLocation = toPosition.bind(function (pos) {
-        return $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, rootNode, pos);
+        return $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, rootNode, pos);
       });
       if (fromLocation.isSome() && toLocation.isSome()) {
-        return $_2p5owi3tjm0ofuul.findRootInline(isInlineTarget, rootNode, from).map(function (elm) {
+        return $_955v2u3wjnlpaxit.findRootInline(isInlineTarget, rootNode, from).map(function (elm) {
           if (hasOnlyTwoOrLessPositionsLeft(elm)) {
-            $_9pvoj844jm0ofuxf.deleteElement(editor, forward, Element$$1.fromDom(elm));
+            $_ezizyx47jnlpaxle.deleteElement(editor, forward, Element$$1.fromDom(elm));
             return true;
           } else {
             return false;
@@ -70388,7 +71342,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return false;
   };
-  var $_64ij4v45jm0ofuxw = { backspaceDelete: backspaceDelete$3 };
+  var $_5d7kmb48jnlpaxm1 = { backspaceDelete: backspaceDelete$3 };
 
   var tableCellRng = Immutable('start', 'end');
   var tableSelection = Immutable('rng', 'table', 'cells');
@@ -70397,26 +71351,26 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     { emptyCells: ['cells'] }
   ]);
   var isRootFromElement = function (root) {
-    return curry($_ag822a1ejm0ofuc8.eq, root);
+    return curry($_5h7cor1ejnlpax0k.eq, root);
   };
   var getClosestCell$1 = function (container, isRoot) {
-    return $_6nhfso29jm0ofuij.closest(Element$$1.fromDom(container), 'td,th', isRoot);
+    return $_2kbu29jnlpax6t.closest(Element$$1.fromDom(container), 'td,th', isRoot);
   };
   var getClosestTable = function (cell, isRoot) {
-    return $_6nhfso29jm0ofuij.ancestor(cell, 'table', isRoot);
+    return $_2kbu29jnlpax6t.ancestor(cell, 'table', isRoot);
   };
   var isExpandedCellRng = function (cellRng) {
-    return $_ag822a1ejm0ofuc8.eq(cellRng.start(), cellRng.end()) === false;
+    return $_5h7cor1ejnlpax0k.eq(cellRng.start(), cellRng.end()) === false;
   };
   var getTableFromCellRng = function (cellRng, isRoot) {
     return getClosestTable(cellRng.start(), isRoot).bind(function (startParentTable) {
       return getClosestTable(cellRng.end(), isRoot).bind(function (endParentTable) {
-        return $_ag822a1ejm0ofuc8.eq(startParentTable, endParentTable) ? Option.some(startParentTable) : Option.none();
+        return $_5h7cor1ejnlpax0k.eq(startParentTable, endParentTable) ? Option.some(startParentTable) : Option.none();
       });
     });
   };
   var getTableCells = function (table) {
-    return $_29u9y827jm0ofuid.descendants(table, 'td,th');
+    return $_cmitir27jnlpax6e.descendants(table, 'td,th');
   };
   var getCellRangeFromStartTable = function (cellRng, isRoot) {
     return getClosestTable(cellRng.start(), isRoot).bind(function (table) {
@@ -70479,7 +71433,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getCellIndex = function (cells, cell) {
     return findIndex(cells, function (x) {
-      return $_ag822a1ejm0ofuc8.eq(x, cell);
+      return $_5h7cor1ejnlpax0k.eq(x, cell);
     });
   };
   var getSelectedCells = function (tableSelection) {
@@ -70502,7 +71456,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getActionFromRange = function (root, rng) {
     return getTableSelectionFromRng(root, rng).bind(getAction);
   };
-  var $_dhmfd74djm0ofuzo = {
+  var $_baassw4gjnlpaxnk = {
     getActionFromRange: getActionFromRange,
     getActionFromCells: getActionFromCells
   };
@@ -70525,17 +71479,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var hasMultipleRanges = function (selection) {
     return getRanges(selection).length > 1;
   };
-  var $_9u5d8n4fjm0ofv0b = {
+  var $_533sn84ijnlpaxoe = {
     getRanges: getRanges,
     getSelectedNodes: getSelectedNodes,
     hasMultipleRanges: hasMultipleRanges
   };
 
   var getCellsFromRanges = function (ranges) {
-    return filter($_9u5d8n4fjm0ofv0b.getSelectedNodes(ranges), isTableCell);
+    return filter($_533sn84ijnlpaxoe.getSelectedNodes(ranges), isTableCell);
   };
   var getCellsFromElement = function (elm) {
-    var selectedCells = $_29u9y827jm0ofuid.descendants(elm, 'td[data-mce-selected],th[data-mce-selected]');
+    var selectedCells = $_cmitir27jnlpax6e.descendants(elm, 'td[data-mce-selected],th[data-mce-selected]');
     return selectedCells;
   };
   var getCellsFromElementOrRanges = function (ranges, element) {
@@ -70544,9 +71498,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return selectedCells.length > 0 ? selectedCells : rangeCells;
   };
   var getCellsFromEditor = function (editor) {
-    return getCellsFromElementOrRanges($_9u5d8n4fjm0ofv0b.getRanges(editor.selection.getSel()), Element$$1.fromDom(editor.getBody()));
+    return getCellsFromElementOrRanges($_533sn84ijnlpaxoe.getRanges(editor.selection.getSel()), Element$$1.fromDom(editor.getBody()));
   };
-  var $_5fevs04ejm0ofv06 = {
+  var $_1yq8wz4hjnlpaxo7 = {
     getCellsFromRanges: getCellsFromRanges,
     getCellsFromElement: getCellsFromElement,
     getCellsFromElementOrRanges: getCellsFromElementOrRanges,
@@ -70554,16 +71508,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var emptyCells = function (editor, cells) {
-    each(cells, $_5n19nv3ljm0ofusy.fillWithPaddingBr);
+    each(cells, $_azhpc63njnlpaxgw.fillWithPaddingBr);
     editor.selection.setCursorLocation(cells[0].dom(), 0);
     return true;
   };
   var deleteTableElement = function (editor, table) {
-    $_9pvoj844jm0ofuxf.deleteElement(editor, false, table);
+    $_ezizyx47jnlpaxle.deleteElement(editor, false, table);
     return true;
   };
   var deleteCellRange = function (editor, rootElm, rng) {
-    return $_dhmfd74djm0ofuzo.getActionFromRange(rootElm, rng).map(function (action) {
+    return $_baassw4gjnlpaxnk.getActionFromRange(rootElm, rng).map(function (action) {
       return action.fold(curry(deleteTableElement, editor), curry(emptyCells, editor));
     });
   };
@@ -70580,32 +71534,32 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var deleteRange$1 = function (editor, startElm) {
     var rootNode = Element$$1.fromDom(editor.getBody());
     var rng = editor.selection.getRng();
-    var selectedCells = $_5fevs04ejm0ofv06.getCellsFromEditor(editor);
+    var selectedCells = $_1yq8wz4hjnlpaxo7.getCellsFromEditor(editor);
     return selectedCells.length !== 0 ? emptyCells(editor, selectedCells) : deleteTableRange(editor, rootNode, rng, startElm);
   };
   var getParentCell = function (rootElm, elm) {
-    return find($_2rilno3zjm0ofuw7.parentsAndSelf(elm, rootElm), isTableCell);
+    return find($_4b88sj42jnlpaxkd.parentsAndSelf(elm, rootElm), isTableCell);
   };
   var getParentCaption = function (rootElm, elm) {
-    return find($_2rilno3zjm0ofuw7.parentsAndSelf(elm, rootElm), function (elm) {
-      return $_byto2911jm0ofu9v.name(elm) === 'caption';
+    return find($_4b88sj42jnlpaxkd.parentsAndSelf(elm, rootElm), function (elm) {
+      return $_7u5fzs11jnlpawv6.name(elm) === 'caption';
     });
   };
   var deleteBetweenCells = function (editor, rootElm, forward, fromCell, from) {
-    return $_3belrm2yjm0ofun6.navigate(forward, editor.getBody(), from).bind(function (to) {
+    return $_32xcvk30jnlpaxbn.navigate(forward, editor.getBody(), from).bind(function (to) {
       return getParentCell(rootElm, Element$$1.fromDom(to.getNode())).map(function (toCell) {
-        return $_ag822a1ejm0ofuc8.eq(toCell, fromCell) === false;
+        return $_5h7cor1ejnlpax0k.eq(toCell, fromCell) === false;
       });
     });
   };
   var emptyElement = function (editor, elm) {
-    $_5n19nv3ljm0ofusy.fillWithPaddingBr(elm);
+    $_azhpc63njnlpaxgw.fillWithPaddingBr(elm);
     editor.selection.setCursorLocation(elm.dom(), 0);
     return Option.some(true);
   };
   var isDeleteOfLastCharPos = function (fromCaption, forward, from, to) {
-    return $_3belrm2yjm0ofun6.firstPositionIn(fromCaption.dom()).bind(function (first) {
-      return $_3belrm2yjm0ofun6.lastPositionIn(fromCaption.dom()).map(function (last$$1) {
+    return $_32xcvk30jnlpaxbn.firstPositionIn(fromCaption.dom()).bind(function (first) {
+      return $_32xcvk30jnlpaxbn.lastPositionIn(fromCaption.dom()).map(function (last$$1) {
         return forward ? from.isEqual(first) && to.isEqual(last$$1) : from.isEqual(last$$1) && to.isEqual(first);
       });
     }).getOr(true);
@@ -70615,23 +71569,23 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var validateCaretCaption = function (rootElm, fromCaption, to) {
     return getParentCaption(rootElm, Element$$1.fromDom(to.getNode())).map(function (toCaption) {
-      return $_ag822a1ejm0ofuc8.eq(toCaption, fromCaption) === false;
+      return $_5h7cor1ejnlpax0k.eq(toCaption, fromCaption) === false;
     });
   };
   var deleteCaretInsideCaption = function (editor, rootElm, forward, fromCaption, from) {
-    return $_3belrm2yjm0ofun6.navigate(forward, editor.getBody(), from).bind(function (to) {
+    return $_32xcvk30jnlpaxbn.navigate(forward, editor.getBody(), from).bind(function (to) {
       return isDeleteOfLastCharPos(fromCaption, forward, from, to) ? emptyCaretCaption(editor, fromCaption) : validateCaretCaption(rootElm, fromCaption, to);
     }).or(Option.some(true));
   };
   var deleteCaretCells = function (editor, forward, rootElm, startElm) {
     var from = CaretPosition$1.fromRangeStart(editor.selection.getRng());
     return getParentCell(rootElm, startElm).bind(function (fromCell) {
-      return $_5542313wjm0ofuvj.isEmpty(fromCell) ? emptyElement(editor, fromCell) : deleteBetweenCells(editor, rootElm, forward, fromCell, from);
+      return $_czpaaj3zjnlpaxjj.isEmpty(fromCell) ? emptyElement(editor, fromCell) : deleteBetweenCells(editor, rootElm, forward, fromCell, from);
     });
   };
   var deleteCaretCaption = function (editor, forward, rootElm, fromCaption) {
     var from = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-    return $_5542313wjm0ofuvj.isEmpty(fromCaption) ? emptyElement(editor, fromCaption) : deleteCaretInsideCaption(editor, rootElm, forward, fromCaption, from);
+    return $_czpaaj3zjnlpaxjj.isEmpty(fromCaption) ? emptyElement(editor, fromCaption) : deleteCaretInsideCaption(editor, rootElm, forward, fromCaption, from);
   };
   var deleteCaret = function (editor, forward, startElm) {
     var rootElm = Element$$1.fromDom(editor.getBody());
@@ -70643,58 +71597,58 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var backspaceDelete$4 = function (editor, forward) {
     var startElm = Element$$1.fromDom(editor.selection.getStart(true));
-    var cells = $_5fevs04ejm0ofv06.getCellsFromEditor(editor);
+    var cells = $_1yq8wz4hjnlpaxo7.getCellsFromEditor(editor);
     return editor.selection.isCollapsed() && cells.length === 0 ? deleteCaret(editor, forward, startElm) : deleteRange$1(editor, startElm);
   };
-  var $_4q88ke4cjm0ofuzc = { backspaceDelete: backspaceDelete$4 };
+  var $_3apnm14fjnlpaxn8 = { backspaceDelete: backspaceDelete$4 };
 
   var nativeCommand = function (editor, command) {
     editor.getDoc().execCommand(command, false, null);
   };
   var deleteCommand = function (editor) {
-    if ($_a427rq41jm0ofuwm.backspaceDelete(editor, false)) {
+    if ($_jcgv344jnlpaxks.backspaceDelete(editor, false)) {
       return;
-    } else if ($_64ij4v45jm0ofuxw.backspaceDelete(editor, false)) {
+    } else if ($_5d7kmb48jnlpaxm1.backspaceDelete(editor, false)) {
       return;
-    } else if ($_84azap3qjm0ofutw.backspaceDelete(editor, false)) {
+    } else if ($_3n8adg3tjnlpaxi5.backspaceDelete(editor, false)) {
       return;
-    } else if ($_4q88ke4cjm0ofuzc.backspaceDelete(editor)) {
+    } else if ($_3apnm14fjnlpaxn8.backspaceDelete(editor)) {
       return;
-    } else if ($_5cqhe240jm0ofuwd.backspaceDelete(editor, false)) {
+    } else if ($_f5evyu43jnlpaxki.backspaceDelete(editor, false)) {
       return;
     } else {
       nativeCommand(editor, 'Delete');
-      $_85mu9b3sjm0ofuub.paddEmptyBody(editor);
+      $_dfzzw73vjnlpaxik.paddEmptyBody(editor);
     }
   };
   var forwardDeleteCommand = function (editor) {
-    if ($_a427rq41jm0ofuwm.backspaceDelete(editor, true)) {
+    if ($_jcgv344jnlpaxks.backspaceDelete(editor, true)) {
       return;
-    } else if ($_64ij4v45jm0ofuxw.backspaceDelete(editor, true)) {
+    } else if ($_5d7kmb48jnlpaxm1.backspaceDelete(editor, true)) {
       return;
-    } else if ($_84azap3qjm0ofutw.backspaceDelete(editor, true)) {
+    } else if ($_3n8adg3tjnlpaxi5.backspaceDelete(editor, true)) {
       return;
-    } else if ($_4q88ke4cjm0ofuzc.backspaceDelete(editor)) {
+    } else if ($_3apnm14fjnlpaxn8.backspaceDelete(editor)) {
       return;
-    } else if ($_5cqhe240jm0ofuwd.backspaceDelete(editor, true)) {
+    } else if ($_f5evyu43jnlpaxki.backspaceDelete(editor, true)) {
       return;
     } else {
       nativeCommand(editor, 'ForwardDelete');
     }
   };
-  var $_eenpbk3pjm0ofutu = {
+  var $_7ms0593sjnlpaxht = {
     deleteCommand: deleteCommand,
     forwardDeleteCommand: forwardDeleteCommand
   };
 
   var getSpecifiedFontProp = function (propName, rootElm, elm) {
     var getProperty = function (elm) {
-      return $_g5cuhh13jm0ofua1.getRaw(elm, propName);
+      return $_asiuhf13jnlpawvc.getRaw(elm, propName);
     };
     var isRoot = function (elm) {
-      return $_ag822a1ejm0ofuc8.eq(Element$$1.fromDom(rootElm), elm);
+      return $_5h7cor1ejnlpax0k.eq(Element$$1.fromDom(rootElm), elm);
     };
-    return $_6b07a32ajm0ofuil.closest(Element$$1.fromDom(elm), function (elm) {
+    return $_cs5qmd2ajnlpax6v.closest(Element$$1.fromDom(elm), function (elm) {
       return getProperty(elm).isSome();
     }, isRoot).bind(getProperty);
   };
@@ -70716,21 +71670,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getFontProp = function (propName) {
     return function (rootElm, elm) {
-      return Option.from(elm).map(Element$$1.fromDom).filter($_byto2911jm0ofu9v.isElement).bind(function (element) {
+      return Option.from(elm).map(Element$$1.fromDom).filter($_7u5fzs11jnlpawv6.isElement).bind(function (element) {
         return getSpecifiedFontProp(propName, rootElm, element.dom()).or(getComputedFontProp(propName, element.dom()));
       }).getOr('');
     };
   };
-  var $_1lx1am4hjm0ofv0t = {
+  var $_ar9b8r4kjnlpaxov = {
     getFontSize: getFontProp('font-size'),
     getFontFamily: compose(normalizeFontFamily, getFontProp('font-family')),
     toPt: toPt
   };
 
   var findFirstCaretElement = function (editor) {
-    return $_3belrm2yjm0ofun6.firstPositionIn(editor.getBody()).map(function (caret) {
+    return $_32xcvk30jnlpaxbn.firstPositionIn(editor.getBody()).map(function (caret) {
       var container = caret.container();
-      return $_2oph0b1rjm0ofuee.isText(container) ? container.parentNode : container;
+      return $_fy28ei1rjnlpax2o.isText(container) ? container.parentNode : container;
     });
   };
   var isRangeAtStartOfNode = function (rng, root) {
@@ -70746,8 +71700,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (/^[0-9\.]+$/.test(value)) {
       var fontSizeNumber = parseInt(value, 10);
       if (fontSizeNumber >= 1 && fontSizeNumber <= 7) {
-        var fontSizes = $_9enitt38jm0ofuq6.getFontStyleValues(editor);
-        var fontClasses = $_9enitt38jm0ofuq6.getFontSizeClasses(editor);
+        var fontSizes = $_c6e09z3ajnlpaxek.getFontStyleValues(editor);
+        var fontClasses = $_c6e09z3ajnlpaxek.getFontSizeClasses(editor);
         if (fontClasses) {
           return fontClasses[fontSizeNumber - 1] || value;
         } else {
@@ -70767,10 +71721,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var fontNameQuery = function (editor) {
     return getCaretElement(editor).fold(function () {
       return findFirstCaretElement(editor).map(function (caretElement) {
-        return $_1lx1am4hjm0ofv0t.getFontFamily(editor.getBody(), caretElement);
+        return $_ar9b8r4kjnlpaxov.getFontFamily(editor.getBody(), caretElement);
       }).getOr('');
     }, function (caretElement) {
-      return $_1lx1am4hjm0ofv0t.getFontFamily(editor.getBody(), caretElement);
+      return $_ar9b8r4kjnlpaxov.getFontFamily(editor.getBody(), caretElement);
     });
   };
   var fontSizeAction = function (editor, value) {
@@ -70780,17 +71734,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var fontSizeQuery = function (editor) {
     return getCaretElement(editor).fold(function () {
       return findFirstCaretElement(editor).map(function (caretElement) {
-        return $_1lx1am4hjm0ofv0t.getFontSize(editor.getBody(), caretElement);
+        return $_ar9b8r4kjnlpaxov.getFontSize(editor.getBody(), caretElement);
       }).getOr('');
     }, function (caretElement) {
-      return $_1lx1am4hjm0ofv0t.getFontSize(editor.getBody(), caretElement);
+      return $_ar9b8r4kjnlpaxov.getFontSize(editor.getBody(), caretElement);
     });
   };
 
   var isEq$2 = function (rng1, rng2) {
     return rng1 && rng2 && (rng1.startContainer === rng2.startContainer && rng1.startOffset === rng2.startOffset) && (rng1.endContainer === rng2.endContainer && rng1.endOffset === rng2.endOffset);
   };
-  var $_5mckc04kjm0ofv1t = { isEq: isEq$2 };
+  var $_3s8g9y4njnlpaxqj = { isEq: isEq$2 };
 
   var findParent = function (node, rootNode, predicate) {
     while (node && node !== rootNode) {
@@ -70821,7 +71775,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var hasBrBeforeAfter = function (dom, node, left) {
     var walker = new TreeWalker(node, dom.getParent(node.parentNode, dom.isBlock) || dom.getRoot());
     while (node = walker[left ? 'prev' : 'next']()) {
-      if ($_2oph0b1rjm0ofuee.isBr(node)) {
+      if ($_fy28ei1rjnlpax2o.isBr(node)) {
         return true;
       }
     }
@@ -70831,7 +71785,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var hasContentEditableFalseParent = function (body, node) {
     while (node && node !== body) {
-      if ($_2oph0b1rjm0ofuee.isContentEditableFalse(node)) {
+      if ($_fy28ei1rjnlpax2o.isContentEditableFalse(node)) {
         return true;
       }
       node = node.parentNode;
@@ -70844,7 +71798,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var node;
     var nonEmptyElementsMap = dom.schema.getNonEmptyElements();
     parentBlockContainer = dom.getParent(startNode.parentNode, dom.isBlock) || body;
-    if (left && $_2oph0b1rjm0ofuee.isBr(startNode) && isAfterNode && dom.isEmpty(parentBlockContainer)) {
+    if (left && $_fy28ei1rjnlpax2o.isBr(startNode) && isAfterNode && dom.isEmpty(parentBlockContainer)) {
       return Option.some(CaretPosition(startNode.parentNode, dom.nodeIndex(startNode)));
     }
     walker = new TreeWalker(startNode, parentBlockContainer);
@@ -70852,7 +71806,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (dom.getContentEditableParent(node) === 'false' || isCeFalseCaretContainer(node, body)) {
         return Option.none();
       }
-      if ($_2oph0b1rjm0ofuee.isText(node) && node.nodeValue.length > 0) {
+      if ($_fy28ei1rjnlpax2o.isText(node) && node.nodeValue.length > 0) {
         if (hasParentWithName(node, body, 'A') === false) {
           return Option.some(CaretPosition(node, left ? node.nodeValue.length : 0));
         }
@@ -70875,16 +71829,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var directionLeft, isAfterNode, normalized = false;
     container = rng[(start ? 'start' : 'end') + 'Container'];
     offset = rng[(start ? 'start' : 'end') + 'Offset'];
-    isAfterNode = $_2oph0b1rjm0ofuee.isElement(container) && offset === container.childNodes.length;
+    isAfterNode = $_fy28ei1rjnlpax2o.isElement(container) && offset === container.childNodes.length;
     nonEmptyElementsMap = dom.schema.getNonEmptyElements();
     directionLeft = start;
     if (isCaretContainer(container)) {
       return Option.none();
     }
-    if ($_2oph0b1rjm0ofuee.isElement(container) && offset > container.childNodes.length - 1) {
+    if ($_fy28ei1rjnlpax2o.isElement(container) && offset > container.childNodes.length - 1) {
       directionLeft = false;
     }
-    if ($_2oph0b1rjm0ofuee.isDocument(container)) {
+    if ($_fy28ei1rjnlpax2o.isDocument(container)) {
       container = body;
       offset = 0;
     }
@@ -70903,7 +71857,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (container.hasChildNodes()) {
         offset = Math.min(!directionLeft && offset > 0 ? offset - 1 : offset, container.childNodes.length - 1);
         container = container.childNodes[offset];
-        offset = $_2oph0b1rjm0ofuee.isText(container) && isAfterNode ? container.data.length : 0;
+        offset = $_fy28ei1rjnlpax2o.isText(container) && isAfterNode ? container.data.length : 0;
         if (!collapsed && container === body.lastChild && isTable$2(container)) {
           return Option.none();
         }
@@ -70914,11 +71868,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           node = container;
           walker = new TreeWalker(container, body);
           do {
-            if ($_2oph0b1rjm0ofuee.isContentEditableFalse(node) || isCaretContainer(node)) {
+            if ($_fy28ei1rjnlpax2o.isContentEditableFalse(node) || isCaretContainer(node)) {
               normalized = false;
               break;
             }
-            if ($_2oph0b1rjm0ofuee.isText(node) && node.nodeValue.length > 0) {
+            if ($_fy28ei1rjnlpax2o.isText(node) && node.nodeValue.length > 0) {
               offset = directionLeft ? 0 : node.nodeValue.length;
               container = node;
               normalized = true;
@@ -70938,19 +71892,19 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
     if (collapsed) {
-      if ($_2oph0b1rjm0ofuee.isText(container) && offset === 0) {
+      if ($_fy28ei1rjnlpax2o.isText(container) && offset === 0) {
         findTextNodeRelative(dom, isAfterNode, collapsed, true, container).each(function (pos) {
           container = pos.container();
           offset = pos.offset();
           normalized = true;
         });
       }
-      if ($_2oph0b1rjm0ofuee.isElement(container)) {
+      if ($_fy28ei1rjnlpax2o.isElement(container)) {
         node = container.childNodes[offset];
         if (!node) {
           node = container.childNodes[offset - 1];
         }
-        if (node && $_2oph0b1rjm0ofuee.isBr(node) && !isPrevNode(node, 'A') && !hasBrBeforeAfter(dom, node, false) && !hasBrBeforeAfter(dom, node, true)) {
+        if (node && $_fy28ei1rjnlpax2o.isBr(node) && !isPrevNode(node, 'A') && !hasBrBeforeAfter(dom, node, false) && !hasBrBeforeAfter(dom, node, true)) {
           findTextNodeRelative(dom, isAfterNode, collapsed, true, node).each(function (pos) {
             container = pos.container();
             offset = pos.offset();
@@ -70959,7 +71913,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       }
     }
-    if (directionLeft && !collapsed && $_2oph0b1rjm0ofuee.isText(container) && offset === container.nodeValue.length) {
+    if (directionLeft && !collapsed && $_fy28ei1rjnlpax2o.isText(container) && offset === container.nodeValue.length) {
       findTextNodeRelative(dom, isAfterNode, collapsed, false, container).each(function (pos) {
         container = pos.container();
         offset = pos.offset();
@@ -70984,9 +71938,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (collapsed) {
       normRng.collapse(true);
     }
-    return $_5mckc04kjm0ofv1t.isEq(rng, normRng) ? Option.none() : Option.some(normRng);
+    return $_3s8g9y4njnlpaxqj.isEq(rng, normRng) ? Option.none() : Option.some(normRng);
   };
-  var $_a398vx4jjm0ofv1m = { normalize: normalize$1 };
+  var $_afh56j4mjnlpaxpx = { normalize: normalize$1 };
 
   var hasRightSideContent = function (schema, container, parentBlock) {
     var walker = new TreeWalker(container, parentBlock);
@@ -71019,7 +71973,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var selection = editor.selection, dom = editor.dom;
     var brElm, extraBr;
     var rng = selection.getRng();
-    $_a398vx4jjm0ofv1m.normalize(dom, rng).each(function (normRng) {
+    $_afh56j4mjnlpaxpx.normalize(dom, rng).each(function (normRng) {
       rng.setStart(normRng.startContainer, normRng.startOffset);
       rng.setEnd(normRng.endContainer, normRng.endOffset);
     });
@@ -71058,28 +72012,28 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var insertBrBefore = function (editor, inline) {
     var br = Element$$1.fromTag('br');
-    $_8gbbpa1yjm0ofugu.before(Element$$1.fromDom(inline), br);
+    $_ag89ax1yjnlpax4x.before(Element$$1.fromDom(inline), br);
     editor.undoManager.add();
   };
   var insertBrAfter = function (editor, inline) {
     if (!hasBrAfter(editor.getBody(), inline)) {
-      $_8gbbpa1yjm0ofugu.after(Element$$1.fromDom(inline), Element$$1.fromTag('br'));
+      $_ag89ax1yjnlpax4x.after(Element$$1.fromDom(inline), Element$$1.fromTag('br'));
     }
     var br = Element$$1.fromTag('br');
-    $_8gbbpa1yjm0ofugu.after(Element$$1.fromDom(inline), br);
+    $_ag89ax1yjnlpax4x.after(Element$$1.fromDom(inline), br);
     scrollToBr(editor.dom, editor.selection, br.dom());
     moveSelectionToBr(editor.dom, editor.selection, br.dom(), false);
     editor.undoManager.add();
   };
   var isBeforeBr = function (pos) {
-    return $_2oph0b1rjm0ofuee.isBr(pos.getNode());
+    return $_fy28ei1rjnlpax2o.isBr(pos.getNode());
   };
   var hasBrAfter = function (rootNode, startNode) {
     if (isBeforeBr(CaretPosition$1.after(startNode))) {
       return true;
     } else {
-      return $_3belrm2yjm0ofun6.nextPosition(rootNode, CaretPosition$1.after(startNode)).map(function (pos) {
-        return $_2oph0b1rjm0ofuee.isBr(pos.getNode());
+      return $_32xcvk30jnlpaxbn.nextPosition(rootNode, CaretPosition$1.after(startNode)).map(function (pos) {
+        return $_fy28ei1rjnlpax2o.isBr(pos.getNode());
       }).getOr(false);
     }
   };
@@ -71090,9 +72044,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return location.fold(constant(false), isAnchorLink, isAnchorLink, constant(false));
   };
   var readInlineAnchorLocation = function (editor) {
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
     var position = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-    return $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, editor.getBody(), position).filter(isInsideAnchor);
+    return $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, editor.getBody(), position).filter(isInsideAnchor);
   };
   var insertBrOutsideAnchor = function (editor, location) {
     location.fold(noop, curry(insertBrBefore, editor), curry(insertBrAfter, editor), noop);
@@ -71105,7 +72059,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       insertBrAtCaret(editor, evt);
     }
   };
-  var $_9ou6sm4ijm0ofv1b = { insert: insert };
+  var $_ejrlhl4ljnlpaxpg = { insert: insert };
 
   var adt = Adt.generate([
     { 'before': ['element'] },
@@ -71123,7 +72077,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var getStart = function (situ) {
     return situ.fold(identity, identity, identity);
   };
-  var $_d1x09a4njm0ofv2g = {
+  var $_64es4o4qjnlpaxri = {
     before: adt.before,
     on: adt.on,
     after: adt.after,
@@ -71158,7 +72112,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         return Element$$1.fromDom(rng.startContainer);
       },
       relative: function (startSitu, finishSitu) {
-        return $_d1x09a4njm0ofv2g.getStart(startSitu);
+        return $_64es4o4qjnlpaxri.getStart(startSitu);
       },
       exact: function (start, soffset, finish, foffset) {
         return start;
@@ -71167,9 +72121,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getWin = function (selection) {
     var start = getStart$1(selection);
-    return $_8mvo7w18jm0ofub9.defaultView(start);
+    return $_dr4ybh18jnlpawzt.defaultView(start);
   };
-  var $_1bk4s4mjm0ofv2a = {
+  var $_f9vlzb4pjnlpaxrd = {
     domRange: type$1.domRange,
     relative: type$1.relative,
     exact: type$1.exact,
@@ -71178,9 +72132,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     getWin: getWin
   };
 
-  var browser$3 = $_4i10pfojm0ofu4r.detect().browser;
+  var browser$3 = $_766rx4ojnlpawtd.detect().browser;
   var clamp = function (offset, element) {
-    var max = $_byto2911jm0ofu9v.isText(element) ? $_7u5bnv3ejm0ofur4.get(element).length : $_8mvo7w18jm0ofub9.children(element).length + 1;
+    var max = $_7u5fzs11jnlpawv6.isText(element) ? $_dzrxgg3gjnlpaxf6.get(element).length : $_dr4ybh18jnlpawzt.children(element).length + 1;
     if (offset > max) {
       return max;
     } else if (offset < 0) {
@@ -71189,10 +72143,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return offset;
   };
   var normalizeRng = function (rng) {
-    return $_1bk4s4mjm0ofv2a.range(rng.start(), clamp(rng.soffset(), rng.start()), rng.finish(), clamp(rng.foffset(), rng.finish()));
+    return $_f9vlzb4pjnlpaxrd.range(rng.start(), clamp(rng.soffset(), rng.start()), rng.finish(), clamp(rng.foffset(), rng.finish()));
   };
   var isOrContains = function (root, elm) {
-    return $_ag822a1ejm0ofuc8.contains(root, elm) || $_ag822a1ejm0ofuc8.eq(root, elm);
+    return $_5h7cor1ejnlpax0k.contains(root, elm) || $_5h7cor1ejnlpax0k.eq(root, elm);
   };
   var isRngInRoot = function (root) {
     return function (rng) {
@@ -71203,7 +72157,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return editor.inline === true || browser$3.isIE();
   };
   var nativeRangeToSelectionRange = function (r) {
-    return $_1bk4s4mjm0ofv2a.range(Element$$1.fromDom(r.startContainer), r.startOffset, Element$$1.fromDom(r.endContainer), r.endOffset);
+    return $_f9vlzb4pjnlpaxrd.range(Element$$1.fromDom(r.startContainer), r.startOffset, Element$$1.fromDom(r.endContainer), r.endOffset);
   };
   var readRange = function (win) {
     var selection = win.getSelection();
@@ -71211,7 +72165,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return rng.map(nativeRangeToSelectionRange);
   };
   var getBookmark$2 = function (root) {
-    var win = $_8mvo7w18jm0ofub9.defaultView(root);
+    var win = $_dr4ybh18jnlpawzt.defaultView(root);
     return readRange(win.dom()).filter(isRngInRoot(root));
   };
   var validate = function (root, bookmark) {
@@ -71246,7 +72200,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       editor.selection.setRng(rng);
     });
   };
-  var $_9ay3ds4ljm0ofv1u = {
+  var $_13pqgk4ojnlpaxqr = {
     store: store,
     storeNative: storeNative,
     readRange: readRange,
@@ -71288,10 +72242,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
 
-  var each$10 = $_cvczchljm0ofu3z.each;
-  var extend$2 = $_cvczchljm0ofu3z.extend;
-  var map$3 = $_cvczchljm0ofu3z.map;
-  var inArray$2 = $_cvczchljm0ofu3z.inArray;
+  var each$10 = $_1q1txeljnlpawsa.each;
+  var extend$2 = $_1q1txeljnlpawsa.extend;
+  var map$3 = $_1q1txeljnlpawsa.map;
+  var inArray$2 = $_1q1txeljnlpawsa.inArray;
   function EditorCommands (editor) {
     var dom, selection, formatter;
     var commands = {
@@ -71314,7 +72268,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!/^(mceAddUndoLevel|mceEndUndoLevel|mceBeginUndoLevel|mceRepaint)$/.test(command) && (!args || !args.skip_focus)) {
         editor.focus();
       } else {
-        $_9ay3ds4ljm0ofv1u.restore(editor);
+        $_13pqgk4ojnlpaxqr.restore(editor);
       }
       args = editor.fire('BeforeExecCommand', {
         command: command,
@@ -71492,7 +72446,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
         if (failed || !doc.queryCommandSupported(command)) {
           var msg = editor.translate('Your browser doesn\'t support direct access to the clipboard. ' + 'Please use the Ctrl+X/C/V keyboard shortcuts instead.');
-          if ($_emqeydajm0oftwm.mac) {
+          if ($_cseqobajnlpawll.mac) {
             msg = msg.replace(/Ctrl\+/g, '\u2318+');
           }
           editor.notificationManager.open({
@@ -71585,11 +72539,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         selection.select(value);
       },
       'mceInsertContent': function (command, ui, value) {
-        $_9xr2rv3ijm0ofusa.insertAtCaret(editor, value);
+        $_f55bk53kjnlpaxge.insertAtCaret(editor, value);
       },
       'mceInsertRawHTML': function (command, ui, value) {
-        var content = editor.getContent();
         selection.setContent('tiny_mce_marker');
+        var content = editor.getContent();
         editor.setContent(content.replace(/tiny_mce_marker/g, function () {
           return value;
         }));
@@ -71630,7 +72584,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       },
       'selectAll': function () {
-        var editingHost = dom.getParent(selection.getStart(), $_2oph0b1rjm0ofuee.isContentEditableTrue);
+        var editingHost = dom.getParent(selection.getStart(), $_fy28ei1rjnlpax2o.isContentEditableTrue);
         if (editingHost) {
           var rng = dom.createRng();
           rng.selectNodeContents(editingHost);
@@ -71638,16 +72592,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       },
       'delete': function () {
-        $_eenpbk3pjm0ofutu.deleteCommand(editor);
+        $_7ms0593sjnlpaxht.deleteCommand(editor);
       },
       'forwardDelete': function () {
-        $_eenpbk3pjm0ofutu.forwardDeleteCommand(editor);
+        $_7ms0593sjnlpaxht.forwardDeleteCommand(editor);
       },
       'mceNewDocument': function () {
         editor.setContent('');
       },
       'InsertLineBreak': function (command, ui, value) {
-        $_9ou6sm4ijm0ofv1b.insert(editor, value);
+        $_ejrlhl4ljnlpaxpg.insert(editor, value);
         return true;
       }
     });
@@ -71704,7 +72658,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }, this);
   }
 
-  var nativeEvents = $_cvczchljm0ofu3z.makeMap('focus blur focusin focusout click dblclick mousedown mouseup mousemove mouseover beforepaste paste cut copy selectionchange ' + 'mouseout mouseenter mouseleave wheel keydown keypress keyup input contextmenu dragstart dragend dragover ' + 'draggesture dragdrop drop drag submit ' + 'compositionstart compositionend compositionupdate touchstart touchmove touchend', ' ');
+  var nativeEvents = $_1q1txeljnlpawsa.makeMap('focus blur focusin focusout click dblclick mousedown mouseup mousemove mouseover beforepaste paste cut copy selectionchange ' + 'mouseout mouseenter mouseleave wheel keydown keypress keyup input contextmenu dragstart dragend dragover ' + 'draggesture dragdrop drop drag submit ' + 'compositionstart compositionend compositionupdate touchstart touchmove touchend', ' ');
   var Dispatcher = function (settings) {
     var self = this;
     var scope, bindings = {}, toggleEvent;
@@ -71769,7 +72723,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (callback) {
         callback = { func: callback };
         if (extra) {
-          $_cvczchljm0ofu3z.extend(callback, extra);
+          $_1q1txeljnlpawsa.extend(callback, extra);
         }
         names = name.toLowerCase().split(' ');
         i = names.length;
@@ -71860,7 +72814,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return obj._eventDispatcher;
   };
-  var $_g890eb4qjm0ofv31 = {
+  var $_c8v03c4tjnlpaxrw = {
     fire: function (name, args, bubble) {
       var self = this;
       if (self.removed && name !== 'remove') {
@@ -71916,7 +72870,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       height: height
     });
   };
-  var $_bs96es4tjm0ofv3j = {
+  var $_5atig84wjnlpaxs7 = {
     firePreProcess: firePreProcess,
     firePostProcess: firePostProcess,
     fireRemove: fireRemove,
@@ -71932,10 +72886,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var toggleClass = function (elm, cls, state) {
-    if ($_h41qa23jm0ofui2.has(elm, cls) && state === false) {
-      $_h41qa23jm0ofui2.remove(elm, cls);
+    if ($_fes8i223jnlpax5z.has(elm, cls) && state === false) {
+      $_fes8i223jnlpax5z.remove(elm, cls);
     } else if (state) {
-      $_h41qa23jm0ofui2.add(elm, cls);
+      $_fes8i223jnlpax5z.add(elm, cls);
     }
   };
   var toggleReadOnly = function (editor, state) {
@@ -71965,7 +72919,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         toggleReadOnly(editor, mode === 'readonly');
       });
     }
-    $_bs96es4tjm0ofv3j.fireSwitchMode(editor, mode);
+    $_5atig84wjnlpaxs7.fireSwitchMode(editor, mode);
   };
   var getMode = function (editor) {
     return editor.readonly ? 'readonly' : 'design';
@@ -72052,7 +73006,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var EditorObservable = {
     bindPendingEventDelegates: function () {
       var self = this;
-      $_cvczchljm0ofu3z.each(self._pendingNativeEvents, function (name) {
+      $_1q1txeljnlpawsa.each(self._pendingNativeEvents, function (name) {
         bindEventDelegate(self, name);
       });
     },
@@ -72098,17 +73052,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
   };
-  EditorObservable = $_cvczchljm0ofu3z.extend({}, $_g890eb4qjm0ofv31, EditorObservable);
+  EditorObservable = $_1q1txeljnlpawsa.extend({}, $_c8v03c4tjnlpaxrw, EditorObservable);
   var EditorObservable$1 = EditorObservable;
 
-  var each$11 = $_cvczchljm0ofu3z.each;
-  var explode$2 = $_cvczchljm0ofu3z.explode;
+  var each$11 = $_1q1txeljnlpawsa.each;
+  var explode$2 = $_1q1txeljnlpawsa.explode;
   var keyCodeLookup = {
     f9: 120,
     f10: 121,
     f11: 122
   };
-  var modifierNames = $_cvczchljm0ofu3z.makeMap('alt,ctrl,shift,meta,access');
+  var modifierNames = $_1q1txeljnlpawsa.makeMap('alt,ctrl,shift,meta,access');
   function Shortcuts (editor) {
     var self = this;
     var shortcuts = {};
@@ -72139,14 +73093,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       shortcut.id = id.join(',');
       if (shortcut.access) {
         shortcut.alt = true;
-        if ($_emqeydajm0oftwm.mac) {
+        if ($_cseqobajnlpawll.mac) {
           shortcut.ctrl = true;
         } else {
           shortcut.shift = true;
         }
       }
       if (shortcut.meta) {
-        if ($_emqeydajm0oftwm.mac) {
+        if ($_cseqobajnlpawll.mac) {
           shortcut.meta = true;
         } else {
           shortcut.ctrl = true;
@@ -72157,12 +73111,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var createShortcut = function (pattern, desc, cmdFunc, scope) {
       var shortcuts;
-      shortcuts = $_cvczchljm0ofu3z.map(explode$2(pattern, '>'), parseShortcut);
-      shortcuts[shortcuts.length - 1] = $_cvczchljm0ofu3z.extend(shortcuts[shortcuts.length - 1], {
+      shortcuts = $_1q1txeljnlpawsa.map(explode$2(pattern, '>'), parseShortcut);
+      shortcuts[shortcuts.length - 1] = $_1q1txeljnlpawsa.extend(shortcuts[shortcuts.length - 1], {
         func: cmdFunc,
         scope: scope || editor
       });
-      return $_cvczchljm0ofu3z.extend(shortcuts[0], {
+      return $_1q1txeljnlpawsa.extend(shortcuts[0], {
         desc: editor.translate(desc),
         subpatterns: shortcuts.slice(1)
       });
@@ -72220,12 +73174,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         cmdFunc = function () {
           editor.execCommand(cmd, false, null);
         };
-      } else if ($_cvczchljm0ofu3z.isArray(cmd)) {
+      } else if ($_1q1txeljnlpawsa.isArray(cmd)) {
         cmdFunc = function () {
           editor.execCommand(cmd[0], cmd[1], cmd[2]);
         };
       }
-      each$11(explode$2($_cvczchljm0ofu3z.trim(pattern.toLowerCase())), function (pattern) {
+      each$11(explode$2($_1q1txeljnlpawsa.trim(pattern.toLowerCase())), function (pattern) {
         var shortcut = createShortcut(pattern, desc, cmdFunc, scope);
         shortcuts[shortcut.id] = shortcut;
       });
@@ -72242,24 +73196,24 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }
 
   var any$1 = function (predicate) {
-    return $_6b07a32ajm0ofuil.first(predicate).isSome();
+    return $_cs5qmd2ajnlpax6v.first(predicate).isSome();
   };
   var ancestor$3 = function (scope, predicate, isRoot) {
-    return $_6b07a32ajm0ofuil.ancestor(scope, predicate, isRoot).isSome();
+    return $_cs5qmd2ajnlpax6v.ancestor(scope, predicate, isRoot).isSome();
   };
   var closest$3 = function (scope, predicate, isRoot) {
-    return $_6b07a32ajm0ofuil.closest(scope, predicate, isRoot).isSome();
+    return $_cs5qmd2ajnlpax6v.closest(scope, predicate, isRoot).isSome();
   };
   var sibling$4 = function (scope, predicate) {
-    return $_6b07a32ajm0ofuil.sibling(scope, predicate).isSome();
+    return $_cs5qmd2ajnlpax6v.sibling(scope, predicate).isSome();
   };
   var child$4 = function (scope, predicate) {
-    return $_6b07a32ajm0ofuil.child(scope, predicate).isSome();
+    return $_cs5qmd2ajnlpax6v.child(scope, predicate).isSome();
   };
   var descendant$3 = function (scope, predicate) {
-    return $_6b07a32ajm0ofuil.descendant(scope, predicate).isSome();
+    return $_cs5qmd2ajnlpax6v.descendant(scope, predicate).isSome();
   };
-  var $_4bgqcf4xjm0ofv47 = {
+  var $_f7rq0y50jnlpaxt3 = {
     any: any$1,
     ancestor: ancestor$3,
     closest: closest$3,
@@ -72275,7 +73229,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     element.dom().blur();
   };
   var hasFocus = function (element) {
-    var doc = $_8mvo7w18jm0ofub9.owner(element).dom();
+    var doc = $_dr4ybh18jnlpawzt.owner(element).dom();
     return element.dom() === doc.activeElement;
   };
   var active = function (_doc) {
@@ -72283,20 +73237,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return Option.from(doc.activeElement).map(Element$$1.fromDom);
   };
   var focusInside = function (element) {
-    var doc = $_8mvo7w18jm0ofub9.owner(element);
+    var doc = $_dr4ybh18jnlpawzt.owner(element);
     var inside = active(doc).filter(function (a) {
-      return $_4bgqcf4xjm0ofv47.closest(a, curry($_ag822a1ejm0ofuc8.eq, element));
+      return $_f7rq0y50jnlpaxt3.closest(a, curry($_5h7cor1ejnlpax0k.eq, element));
     });
     inside.fold(function () {
       focus$$1(element);
     }, noop);
   };
   var search = function (element) {
-    return active($_8mvo7w18jm0ofub9.owner(element)).filter(function (e) {
+    return active($_dr4ybh18jnlpawzt.owner(element)).filter(function (e) {
       return element.dom().contains(e.dom());
     });
   };
-  var $_45wq304wjm0ofv40 = {
+  var $_9bj08p4zjnlpaxsp = {
     hasFocus: hasFocus,
     focus: focus$$1,
     blur: blur$$1,
@@ -72317,7 +73271,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return getCollapsedNode(rng).bind(function (node) {
       if (isTableSection(node)) {
         return Option.some(node);
-      } else if ($_ag822a1ejm0ofuc8.contains(root, node) === false) {
+      } else if ($_5h7cor1ejnlpax0k.contains(root, node) === false) {
         return Option.some(root);
       } else {
         return Option.none();
@@ -72326,7 +73280,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var normalizeSelection = function (editor, rng) {
     getFocusInElement(Element$$1.fromDom(editor.getBody()), rng).bind(function (elm) {
-      return $_3belrm2yjm0ofun6.firstPositionIn(elm.dom());
+      return $_32xcvk30jnlpaxbn.firstPositionIn(elm.dom());
     }).fold(function () {
       editor.selection.normalize();
       return;
@@ -72346,10 +73300,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var hasElementFocus = function (elm) {
-    return $_45wq304wjm0ofv40.hasFocus(elm) || $_45wq304wjm0ofv40.search(elm).isSome();
+    return $_9bj08p4zjnlpaxsp.hasFocus(elm) || $_9bj08p4zjnlpaxsp.search(elm).isSome();
   };
   var hasIframeFocus = function (editor) {
-    return editor.iframeElement && $_45wq304wjm0ofv40.hasFocus(Element$$1.fromDom(editor.iframeElement));
+    return editor.iframeElement && $_9bj08p4zjnlpaxsp.hasFocus(Element$$1.fromDom(editor.iframeElement));
   };
   var hasInlineFocus = function (editor) {
     var rawBody = editor.getBody();
@@ -72371,18 +73325,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return;
     }
     if (editor.bookmark !== undefined && hasFocus$1(editor) === false) {
-      $_9ay3ds4ljm0ofv1u.getRng(editor).each(function (bookmarkRng) {
+      $_13pqgk4ojnlpaxqr.getRng(editor).each(function (bookmarkRng) {
         editor.selection.setRng(bookmarkRng);
         rng = bookmarkRng;
       });
     }
     if (!contentEditable) {
-      if (!$_emqeydajm0oftwm.opera) {
+      if (!$_cseqobajnlpawll.opera) {
         focusBody(body);
       }
       editor.getWin().focus();
     }
-    if ($_emqeydajm0oftwm.gecko || contentEditable) {
+    if ($_cseqobajnlpawll.gecko || contentEditable) {
       focusBody(body);
       normalizeSelection(editor, rng);
     }
@@ -72397,7 +73351,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     skipFocus ? activateEditor(editor) : focusEditor(editor);
   };
-  var $_2ois1m4vjm0ofv3q = {
+  var $_8odu5n4yjnlpaxsg = {
     focus: focus$1,
     hasFocus: hasFocus$1
   };
@@ -72407,7 +73361,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return rawElm[propName];
   };
   var getComputedSizeProp = function (propName, elm) {
-    return parseInt($_g5cuhh13jm0ofua1.get(elm, propName), 10);
+    return parseInt($_asiuhf13jnlpawvc.get(elm, propName), 10);
   };
   var getClientWidth = curry(getProp, 'clientWidth');
   var getClientHeight = curry(getProp, 'clientHeight');
@@ -72434,7 +73388,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isXYInContentArea = function (editor, clientX, clientY) {
     var bodyElm = Element$$1.fromDom(editor.getBody());
-    var targetElm = editor.inline ? bodyElm : $_8mvo7w18jm0ofub9.documentElement(bodyElm);
+    var targetElm = editor.inline ? bodyElm : $_dr4ybh18jnlpawzt.documentElement(bodyElm);
     var transposedPoint = transpose(editor.inline, targetElm, clientX, clientY);
     return isInsideElementContentArea(targetElm, transposedPoint.x, transposedPoint.y);
   };
@@ -72444,10 +73398,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isEditorAttachedToDom = function (editor) {
     var rawContainer = editor.inline ? editor.getBody() : editor.getContentAreaContainer();
     return fromDomSafe(rawContainer).map(function (container) {
-      return $_ag822a1ejm0ofuc8.contains($_8mvo7w18jm0ofub9.owner(container), container);
+      return $_5h7cor1ejnlpax0k.contains($_dr4ybh18jnlpawzt.owner(container), container);
     }).getOr(false);
   };
-  var $_rxugf50jm0ofv4s = {
+  var $_wem7o53jnlpaxtk = {
     isXYInContentArea: isXYInContentArea,
     isEditorAttachedToDom: isEditorAttachedToDom
   };
@@ -72492,7 +73446,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     var open = function (args) {
-      if (editor.removed || !$_rxugf50jm0ofv4s.isEditorAttachedToDom(editor)) {
+      if (editor.removed || !$_wem7o53jnlpaxtk.isEditorAttachedToDom(editor)) {
         return;
       }
       return find(notifications, function (notification) {
@@ -72531,10 +73485,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       });
       editor.on('ResizeEditor ResizeWindow', function () {
-        $_4oxubkijm0ofu12.requestAnimationFrame(reposition);
+        $_2nbnh1ijnlpawpi.requestAnimationFrame(reposition);
       });
       editor.on('remove', function () {
-        each(notifications, function (notification) {
+        each(notifications.slice(), function (notification) {
           getImplementation().close(notification);
         });
       });
@@ -72598,7 +73552,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var open = function (args, params) {
       editor.editorManager.setActive(editor);
-      $_9ay3ds4ljm0ofv1u.store(editor);
+      $_13pqgk4ojnlpaxqr.store(editor);
       var win = getImplementation().open(args, params, closeWindow);
       addWindow(win);
       return win;
@@ -72694,7 +73648,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
   };
-  var $_41f2qr54jm0ofv5a = {
+  var $_2xhw4u57jnlpaxu1 = {
     pluginLoadError: pluginLoadError,
     uploadError: uploadError,
     displayError: displayError,
@@ -72706,7 +73660,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var ThemeManager = AddOnManager.ThemeManager;
 
   function XMLHttpRequest () {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('XMLHttpRequest');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('XMLHttpRequest');
     return new f();
   }
 
@@ -72720,7 +73674,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var defaultHandler = function (blobInfo, success, failure, progress) {
       var xhr, formData;
-      xhr = new XMLHttpRequest();
+      xhr = XMLHttpRequest();
       xhr.open('POST', settings.url);
       xhr.withCredentials = settings.credentials;
       xhr.upload.onprogress = function (e) {
@@ -72767,7 +73721,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       };
     };
     var resolvePending = function (blobUri, result) {
-      $_cvczchljm0ofu3z.each(pendingPromises[blobUri], function (resolve) {
+      $_1q1txeljnlpawsa.each(pendingPromises[blobUri], function (resolve) {
         resolve(result);
       });
       delete pendingPromises[blobUri];
@@ -72823,10 +73777,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     var uploadBlobs = function (blobInfos, openNotification) {
-      blobInfos = $_cvczchljm0ofu3z.grep(blobInfos, function (blobInfo) {
+      blobInfos = $_1q1txeljnlpawsa.grep(blobInfos, function (blobInfo) {
         return !uploadStatus.isUploaded(blobInfo.blobUri());
       });
-      return promiseObj.all($_cvczchljm0ofu3z.map(blobInfos, function (blobInfo) {
+      return promiseObj.all($_1q1txeljnlpawsa.map(blobInfos, function (blobInfo) {
         return uploadStatus.isPending(blobInfo.blobUri()) ? pendingUploadBlobInfo(blobInfo) : uploadBlobInfo(blobInfo, settings.handler, openNotification);
       }));
     };
@@ -72840,24 +73794,24 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }
 
   function FileReader () {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('FileReader');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('FileReader');
     return new f();
   }
 
   function Uint8Array (arr) {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('Uint8Array');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('Uint8Array');
     return new f(arr);
   }
 
   var requestAnimationFrame$1 = function (callback) {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('requestAnimationFrame');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('requestAnimationFrame');
     f(callback);
   };
   var atob = function (base64) {
-    var f = $_c0hsq1cjm0oftwy.getOrDie('atob');
+    var f = $_3b2dlgcjnlpawlt.getOrDie('atob');
     return f(base64);
   };
-  var $_bez7j65gjm0ofv75 = {
+  var $_7fz2a15jjnlpaxvr = {
     atob: atob,
     requestAnimationFrame: requestAnimationFrame$1
   };
@@ -72868,7 +73822,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         reject('Cannot convert ' + url + ' to Blob. Resource might not exist or is inaccessible.');
       };
       try {
-        var xhr = new XMLHttpRequest();
+        var xhr = XMLHttpRequest();
         xhr.open('GET', url, true);
         xhr.responseType = 'blob';
         xhr.onload = function () {
@@ -72902,12 +73856,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var str, arr, i;
       var uriParts = parseDataUri(uri);
       try {
-        str = $_bez7j65gjm0ofv75.atob(uriParts.data);
+        str = $_7fz2a15jjnlpaxvr.atob(uriParts.data);
       } catch (e) {
         resolve(new Blob([]));
         return;
       }
-      arr = new Uint8Array(str.length);
+      arr = Uint8Array(str.length);
       for (i = 0; i < arr.length; i++) {
         arr[i] = str.charCodeAt(i);
       }
@@ -72925,14 +73879,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var blobToDataUri = function (blob) {
     return new promiseObj(function (resolve) {
-      var reader = new FileReader();
+      var reader = FileReader();
       reader.onloadend = function () {
         resolve(reader.result);
       };
       reader.readAsDataURL(blob);
     });
   };
-  var $_2k2r7j5djm0ofv6w = {
+  var $_4ygjjg5gjnlpaxvh = {
     uriToBlob: uriToBlob,
     blobToDataUri: blobToDataUri,
     parseDataUri: parseDataUri
@@ -72952,9 +73906,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           blobInfo: blobInfo
         });
       } else {
-        $_2k2r7j5djm0ofv6w.uriToBlob(img.src).then(function (blob) {
-          $_2k2r7j5djm0ofv6w.blobToDataUri(blob).then(function (dataUri) {
-            base64 = $_2k2r7j5djm0ofv6w.parseDataUri(dataUri).data;
+        $_4ygjjg5gjnlpaxvh.uriToBlob(img.src).then(function (blob) {
+          $_4ygjjg5gjnlpaxvh.blobToDataUri(blob).then(function (dataUri) {
+            base64 = $_4ygjjg5gjnlpaxvh.parseDataUri(dataUri).data;
             blobInfo = blobCache.create(uniqueId(), blob, base64);
             blobCache.add(blobInfo);
             resolve({
@@ -72968,7 +73922,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
       return;
     }
-    base64 = $_2k2r7j5djm0ofv6w.parseDataUri(img.src).data;
+    base64 = $_4ygjjg5gjnlpaxvh.parseDataUri(img.src).data;
     blobInfo = blobCache.findFirst(function (cachedBlobInfo) {
       return cachedBlobInfo.base64() === base64;
     });
@@ -72978,7 +73932,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         blobInfo: blobInfo
       });
     } else {
-      $_2k2r7j5djm0ofv6w.uriToBlob(img.src).then(function (blob) {
+      $_4ygjjg5gjnlpaxvh.uriToBlob(img.src).then(function (blob) {
         blobInfo = blobCache.create(uniqueId(), blob, base64);
         blobCache.add(blobInfo);
         resolve({
@@ -72998,11 +73952,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var findAll = function (elm, predicate) {
       var images;
       if (!predicate) {
-        predicate = $_cqjn032ljm0ofukz.constant(true);
+        predicate = $_dv6bef2njnlpax9l.constant(true);
       }
-      images = $_48w2ffmjm0ofu47.filter(getAllImages(elm), function (img) {
+      images = $_n452lmjnlpawsj.filter(getAllImages(elm), function (img) {
         var src = img.src;
-        if (!$_emqeydajm0oftwm.fileApi) {
+        if (!$_cseqobajnlpawll.fileApi) {
           return false;
         }
         if (img.hasAttribute('data-mce-bogus')) {
@@ -73011,7 +73965,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         if (img.hasAttribute('data-mce-placeholder')) {
           return false;
         }
-        if (!src || src === $_emqeydajm0oftwm.transparentSrc) {
+        if (!src || src === $_cseqobajnlpawll.transparentSrc) {
           return false;
         }
         if (src.indexOf('blob:') === 0) {
@@ -73022,7 +73976,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
         return false;
       });
-      var promises = $_48w2ffmjm0ofu47.map(images, function (img) {
+      var promises = $_n452lmjnlpawsj.map(images, function (img) {
         if (cachedPromises[img.src]) {
           return new promiseObj(function (resolve) {
             cachedPromises[img.src].then(function (imageInfo) {
@@ -73064,11 +74018,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var uuid = function (prefix) {
     return prefix + count$1++ + seed();
   };
-  var $_1orsp5ijm0ofv7d = { uuid: uuid };
+  var $_cb5mec5ljnlpaxvz = { uuid: uuid };
 
   function BlobCache () {
     var cache = [];
-    var constant = $_cqjn032ljm0ofukz.constant;
+    var constant = $_dv6bef2njnlpax9l.constant;
     var mimeToExt = function (mime) {
       var mimes = {
         'image/jpeg': 'jpg',
@@ -73098,7 +74052,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!o.blob || !o.base64) {
         throw new Error('blob and base64 representations of the image are required for BlobInfo to be created');
       }
-      id = o.id || $_1orsp5ijm0ofv7d.uuid('blobid');
+      id = o.id || $_cb5mec5ljnlpaxvz.uuid('blobid');
       name = o.name || id;
       return {
         id: constant(id),
@@ -73106,7 +74060,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         filename: constant(name + '.' + mimeToExt(o.blob.type)),
         blob: constant(o.blob),
         base64: constant(o.base64),
-        blobUri: constant(o.blobUri || $_ax1npcbjm0oftwv.createObjectURL(o.blob)),
+        blobUri: constant(o.blobUri || $_9khkh7bjnlpawls.createObjectURL(o.blob)),
         uri: constant(o.uri)
       };
     };
@@ -73121,7 +74075,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     var findFirst = function (predicate) {
-      return $_48w2ffmjm0ofu47.filter(cache, predicate)[0];
+      return $_n452lmjnlpawsj.filter(cache, predicate)[0];
     };
     var getByUri = function (blobUri) {
       return findFirst(function (blobInfo) {
@@ -73129,17 +74083,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     var removeByUri = function (blobUri) {
-      cache = $_48w2ffmjm0ofu47.filter(cache, function (blobInfo) {
+      cache = $_n452lmjnlpawsj.filter(cache, function (blobInfo) {
         if (blobInfo.blobUri() === blobUri) {
-          $_ax1npcbjm0oftwv.revokeObjectURL(blobInfo.blobUri());
+          $_9khkh7bjnlpawls.revokeObjectURL(blobInfo.blobUri());
           return false;
         }
         return true;
       });
     };
     var destroy = function () {
-      $_48w2ffmjm0ofu47.each(cache, function (cachedBlobInfo) {
-        $_ax1npcbjm0oftwv.revokeObjectURL(cachedBlobInfo.blobUri());
+      $_n452lmjnlpawsj.each(cache, function (cachedBlobInfo) {
+        $_9khkh7bjnlpawls.revokeObjectURL(cachedBlobInfo.blobUri());
       });
       cache = [];
     };
@@ -73255,17 +74209,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       blobCache.removeByUri(image.src);
       replaceUrlInUndoStack(image.src, resultUri);
       editor.$(image).attr({
-        'src': $_9enitt38jm0ofuq6.shouldReuseFileName(editor) ? resultUri + cacheInvalidator() : resultUri,
+        'src': $_c6e09z3ajnlpaxek.shouldReuseFileName(editor) ? resultUri + cacheInvalidator() : resultUri,
         'data-mce-src': editor.convertURL(resultUri, 'src')
       });
     };
     var uploadImages = function (callback) {
       if (!uploader) {
         uploader = Uploader(uploadStatus, {
-          url: $_9enitt38jm0ofuq6.getImageUploadUrl(editor),
-          basePath: $_9enitt38jm0ofuq6.getImageUploadBasePath(editor),
-          credentials: $_9enitt38jm0ofuq6.getImagesUploadCredentials(editor),
-          handler: $_9enitt38jm0ofuq6.getImagesUploadHandler(editor)
+          url: $_c6e09z3ajnlpaxek.getImageUploadUrl(editor),
+          basePath: $_c6e09z3ajnlpaxek.getImageUploadBasePath(editor),
+          credentials: $_c6e09z3ajnlpaxek.getImagesUploadCredentials(editor),
+          handler: $_c6e09z3ajnlpaxek.getImagesUploadHandler(editor)
         });
       }
       return scanForImages().then(aliveGuard(function (imageInfos) {
@@ -73276,10 +74230,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         return uploader.upload(blobInfos, openNotification).then(aliveGuard(function (result) {
           var filteredResult = map(result, function (uploadInfo, index) {
             var image = imageInfos[index].image;
-            if (uploadInfo.status && $_9enitt38jm0ofuq6.shouldReplaceBlobUris(editor)) {
+            if (uploadInfo.status && $_c6e09z3ajnlpaxek.shouldReplaceBlobUris(editor)) {
               replaceImageUri(image, uploadInfo.url);
             } else if (uploadInfo.error) {
-              $_41f2qr54jm0ofv5a.uploadError(editor, uploadInfo.error);
+              $_2xhw4u57jnlpaxu1.uploadError(editor, uploadInfo.error);
             }
             return {
               element: image,
@@ -73294,7 +74248,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }));
     };
     var uploadImagesAuto = function (callback) {
-      if ($_9enitt38jm0ofuq6.isAutomaticUploadsEnabled(editor)) {
+      if ($_c6e09z3ajnlpaxek.isAutomaticUploadsEnabled(editor)) {
         return uploadImages(callback);
       }
     };
@@ -73305,7 +74259,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         return false;
       }
       if (imgElm.getAttribute('src').indexOf('data:') === 0) {
-        var dataImgFilter = $_9enitt38jm0ofuq6.getImagesDataImgFilter(editor);
+        var dataImgFilter = $_c6e09z3ajnlpaxek.getImagesDataImgFilter(editor);
         return dataImgFilter(imgElm);
       }
       return true;
@@ -73320,7 +74274,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return imageScanner.findAll(editor.getBody(), isValidDataUriImage).then(aliveGuard(function (result) {
         result = filter(result, function (resultItem) {
           if (typeof resultItem === 'string') {
-            $_41f2qr54jm0ofv5a.displayError(editor, resultItem);
+            $_2xhw4u57jnlpaxu1.displayError(editor, resultItem);
             return false;
           }
           return true;
@@ -73358,7 +74312,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     };
     editor.on('setContent', function () {
-      if ($_9enitt38jm0ofuq6.isAutomaticUploadsEnabled(editor)) {
+      if ($_c6e09z3ajnlpaxek.isAutomaticUploadsEnabled(editor)) {
         uploadImagesAuto();
       } else {
         scanForImages();
@@ -73401,21 +74355,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return blockElements.hasOwnProperty(node.nodeName);
   };
   var isValidTarget = function (blockElements, node) {
-    if ($_2oph0b1rjm0ofuee.isText(node)) {
+    if ($_fy28ei1rjnlpax2o.isText(node)) {
       return true;
-    } else if ($_2oph0b1rjm0ofuee.isElement(node)) {
-      return !isBlockElement(blockElements, node) && !$_5lihpr2vjm0ofumt.isBookmarkNode(node);
+    } else if ($_fy28ei1rjnlpax2o.isElement(node)) {
+      return !isBlockElement(blockElements, node) && !$_43l8qj2xjnlpaxb1.isBookmarkNode(node);
     } else {
       return false;
     }
   };
   var hasBlockParent = function (blockElements, root, node) {
-    return exists($_2rilno3zjm0ofuw7.parents(Element$$1.fromDom(node), Element$$1.fromDom(root)), function (elm) {
+    return exists($_4b88sj42jnlpaxkd.parents(Element$$1.fromDom(node), Element$$1.fromDom(root)), function (elm) {
       return isBlockElement(blockElements, elm.dom());
     });
   };
   var shouldRemoveTextNode = function (blockElements, node) {
-    if ($_2oph0b1rjm0ofuee.isText(node)) {
+    if ($_fy28ei1rjnlpax2o.isText(node)) {
       if (node.nodeValue.length === 0) {
         return true;
       } else if (/^\s+$/.test(node.nodeValue) && (!node.nextSibling || isBlockElement(blockElements, node.nextSibling))) {
@@ -73434,7 +74388,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var tempNode, wrapped, restoreSelection;
     var rootNodeName, forcedRootBlock;
     forcedRootBlock = settings.forced_root_block;
-    if (!node || !$_2oph0b1rjm0ofuee.isElement(node) || !forcedRootBlock) {
+    if (!node || !$_fy28ei1rjnlpax2o.isElement(node) || !forcedRootBlock) {
       return;
     }
     rootNodeName = rootNode.nodeName.toLowerCase();
@@ -73446,7 +74400,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     startOffset = rng.startOffset;
     endContainer = rng.endContainer;
     endOffset = rng.endOffset;
-    restoreSelection = $_2ois1m4vjm0ofv3q.hasFocus(editor);
+    restoreSelection = $_8odu5n4yjnlpaxsg.hasFocus(editor);
     node = rootNode.firstChild;
     while (node) {
       if (isValidTarget(blockElements, node)) {
@@ -73481,11 +74435,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       editor.on('NodeChange', curry(addRootBlocks, editor));
     }
   };
-  var $_fskr7e5kjm0ofv7h = { setup: setup$2 };
+  var $_cjqvqq5njnlpaxw3 = { setup: setup$2 };
 
   var getStartNode = function (rng) {
     var sc = rng.startContainer, so = rng.startOffset;
-    if ($_2oph0b1rjm0ofuee.isText(sc)) {
+    if ($_fy28ei1rjnlpax2o.isText(sc)) {
       return so === 0 ? Option.some(Element$$1.fromDom(sc)) : Option.none();
     } else {
       return Option.from(sc.childNodes[so]).map(Element$$1.fromDom);
@@ -73493,21 +74447,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getEndNode = function (rng) {
     var ec = rng.endContainer, eo = rng.endOffset;
-    if ($_2oph0b1rjm0ofuee.isText(ec)) {
+    if ($_fy28ei1rjnlpax2o.isText(ec)) {
       return eo === ec.data.length ? Option.some(Element$$1.fromDom(ec)) : Option.none();
     } else {
       return Option.from(ec.childNodes[eo - 1]).map(Element$$1.fromDom);
     }
   };
   var getFirstChildren = function (node) {
-    return $_8mvo7w18jm0ofub9.firstChild(node).fold(constant([node]), function (child) {
+    return $_dr4ybh18jnlpawzt.firstChild(node).fold(constant([node]), function (child) {
       return [node].concat(getFirstChildren(child));
     });
   };
   var getLastChildren$1 = function (node) {
-    return $_8mvo7w18jm0ofub9.lastChild(node).fold(constant([node]), function (child) {
-      if ($_byto2911jm0ofu9v.name(child) === 'br') {
-        return $_8mvo7w18jm0ofub9.prevSibling(child).map(function (sibling) {
+    return $_dr4ybh18jnlpawzt.lastChild(node).fold(constant([node]), function (child) {
+      if ($_7u5fzs11jnlpawv6.name(child) === 'br') {
+        return $_dr4ybh18jnlpawzt.prevSibling(child).map(function (sibling) {
           return [node].concat(getLastChildren$1(sibling));
         }).getOr([]);
       } else {
@@ -73520,8 +74474,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       getStartNode(rng),
       getEndNode(rng)
     ], function (startNode, endNode) {
-      var start = find(getFirstChildren(elm), curry($_ag822a1ejm0ofuc8.eq, startNode));
-      var end = find(getLastChildren$1(elm), curry($_ag822a1ejm0ofuc8.eq, endNode));
+      var start = find(getFirstChildren(elm), curry($_5h7cor1ejnlpax0k.eq, startNode));
+      var end = find(getLastChildren$1(elm), curry($_5h7cor1ejnlpax0k.eq, endNode));
       return start.isSome() && end.isSome();
     }).getOr(false);
   };
@@ -73529,7 +74483,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var root = node, walker = new TreeWalker(node, root);
     var nonEmptyElementsMap = dom.schema.getNonEmptyElements();
     do {
-      if (node.nodeType === 3 && $_cvczchljm0ofu3z.trim(node.nodeValue).length !== 0) {
+      if (node.nodeType === 3 && $_1q1txeljnlpawsa.trim(node.nodeValue).length !== 0) {
         if (start) {
           rng.setStart(node, 0);
         } else {
@@ -73549,7 +74503,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
         return;
       }
-      if ($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 11 && dom.isBlock(node) && dom.isEmpty(node)) {
+      if ($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 11 && dom.isBlock(node) && dom.isEmpty(node)) {
         if (start) {
           rng.setStart(node, 0);
         } else {
@@ -73600,7 +74554,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           endContainer: nativeRng.endContainer,
           endOffset: nativeRng.endOffset
         };
-        if (e.type === 'nodechange' || !$_5mckc04kjm0ofv1t.isEq(fakeRng, lastRng)) {
+        if (e.type === 'nodechange' || !$_3s8g9y4njnlpaxqj.isEq(fakeRng, lastRng)) {
           editor.fire('SelectionChange');
         }
         lastRng = fakeRng;
@@ -73611,7 +74565,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     editor.on('SelectionChange', function () {
       var startElm = editor.selection.getStart(true);
-      if (!startElm || !$_emqeydajm0oftwm.range && editor.selection.isCollapsed()) {
+      if (!startElm || !$_cseqobajnlpawll.range && editor.selection.isCollapsed()) {
         return;
       }
       if (hasAnyRanges(editor) && !isSameElementPath(startElm) && editor.dom.isChildOf(startElm, editor.getBody())) {
@@ -73621,7 +74575,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editor.on('MouseUp', function (e) {
       if (!e.isDefaultPrevented() && hasAnyRanges(editor)) {
         if (editor.selection.getNode().nodeName === 'IMG') {
-          $_4oxubkijm0ofu12.setEditorTimeout(editor, function () {
+          $_2nbnh1ijnlpawpi.setEditorTimeout(editor, function () {
             editor.nodeChanged();
           });
         } else {
@@ -73715,10 +74669,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var calc = function (editor, event) {
     return calculatePosition(getBodyPosition(editor), getScrollPosition(editor), getMousePosition(editor, event));
   };
-  var $_ekq4qi5pjm0ofv9b = { calc: calc };
+  var $_d639a65sjnlpaxxw = { calc: calc };
 
-  var isContentEditableFalse$7 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
-  var isContentEditableTrue$4 = $_2oph0b1rjm0ofuee.isContentEditableTrue;
+  var isContentEditableFalse$7 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
+  var isContentEditableTrue$4 = $_fy28ei1rjnlpax2o.isContentEditableTrue;
   var isDraggable = function (rootElm, elm) {
     return isContentEditableFalse$7(elm) && elm !== rootElm;
   };
@@ -73804,7 +74758,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var start$1 = function (state, editor) {
     return function (e) {
       if (isLeftMouseButtonPressed(e)) {
-        var ceElm = $_48w2ffmjm0ofu47.find(editor.dom.getParents(e.target), $_cqjn032ljm0ofukz.or(isContentEditableFalse$7, isContentEditableTrue$4));
+        var ceElm = $_n452lmjnlpawsj.find(editor.dom.getParents(e.target), $_dv6bef2njnlpax9l.or(isContentEditableFalse$7, isContentEditableTrue$4));
         if (isDraggable(editor.getBody(), ceElm)) {
           var elmPos = editor.dom.getPos(ceElm);
           var bodyElm = editor.getBody();
@@ -73824,7 +74778,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
   var move$1 = function (state, editor) {
-    var throttledPlaceCaretAt = $_4oxubkijm0ofu12.throttle(function (clientX, clientY) {
+    var throttledPlaceCaretAt = $_2nbnh1ijnlpawpi.throttle(function (clientX, clientY) {
       editor._selectionOverrides.hideFakeCaret();
       editor.selection.placeCaretAt(clientX, clientY);
     }, 0);
@@ -73839,7 +74793,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         editor.focus();
       }
       if (state.dragging) {
-        var targetPos = applyRelPos(state, $_ekq4qi5pjm0ofv9b.calc(editor, e));
+        var targetPos = applyRelPos(state, $_d639a65sjnlpaxxw.calc(editor, e));
         appendGhostToBody(state.ghost, editor.getBody());
         moveGhost(state.ghost, targetPos, state.width, state.height, state.maxX, state.maxY);
         throttledPlaceCaretAt(e.clientX, e.clientY);
@@ -73918,20 +74872,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     bindFakeDragEvents(editor);
     blockIeDrop(editor);
   };
-  var $_73snkt5ojm0ofv95 = { init: init };
+  var $_5gate55rjnlpaxxq = { init: init };
 
   var getNodeClientRects = function (node) {
     var toArrayWithNode = function (clientRects) {
-      return $_48w2ffmjm0ofu47.map(clientRects, function (clientRect) {
+      return $_n452lmjnlpawsj.map(clientRects, function (clientRect) {
         clientRect = clone$2(clientRect);
         clientRect.node = node;
         return clientRect;
       });
     };
-    if ($_2oph0b1rjm0ofuee.isElement(node)) {
+    if ($_fy28ei1rjnlpax2o.isElement(node)) {
       return toArrayWithNode(node.getClientRects());
     }
-    if ($_2oph0b1rjm0ofuee.isText(node)) {
+    if ($_fy28ei1rjnlpax2o.isText(node)) {
       var rng = node.ownerDocument.createRange();
       rng.setStart(node, 0);
       rng.setEnd(node, node.data.length);
@@ -73939,7 +74893,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var getClientRects = function (node) {
-    return $_48w2ffmjm0ofu47.reduce(node, function (result, node) {
+    return $_n452lmjnlpawsj.reduce(node, function (result, node) {
       return result.concat(getNodeClientRects(node));
     }, []);
   };
@@ -73971,7 +74925,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         if (isBeflowFn(clientRect, targetClientRect)) {
           continue;
         }
-        if (result.length > 0 && isAboveFn(clientRect, $_48w2ffmjm0ofu47.last(result))) {
+        if (result.length > 0 && isAboveFn(clientRect, $_n452lmjnlpawsj.last(result))) {
           line++;
         }
         clientRect.line = line;
@@ -73981,7 +74935,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         result.push(clientRect);
       }
     };
-    targetClientRect = $_48w2ffmjm0ofu47.last(caretPosition.getClientRects());
+    targetClientRect = $_n452lmjnlpawsj.last(caretPosition.getClientRects());
     if (!targetClientRect) {
       return result;
     }
@@ -74005,9 +74959,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var line = 0, clientRect, targetClientRect;
     var getClientRect = function (caretPosition) {
       if (direction === 1) {
-        return $_48w2ffmjm0ofu47.last(caretPosition.getClientRects());
+        return $_n452lmjnlpawsj.last(caretPosition.getClientRects());
       }
-      return $_48w2ffmjm0ofu47.last(caretPosition.getClientRects());
+      return $_n452lmjnlpawsj.last(caretPosition.getClientRects());
     };
     if (direction === 1) {
       walkFn = caretWalker.next;
@@ -74029,7 +74983,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (isAboveFn(clientRect, targetClientRect)) {
         continue;
       }
-      if (result.length > 0 && isBelowFn(clientRect, $_48w2ffmjm0ofu47.last(result))) {
+      if (result.length > 0 && isBelowFn(clientRect, $_n452lmjnlpawsj.last(result))) {
         line++;
       }
       clientRect = clone$2(clientRect);
@@ -74053,7 +75007,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
 
-  var isContentEditableFalse$8 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableFalse$8 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var findNode$1 = findNode;
   var distanceToRectLeft = function (clientRect, clientX) {
     return Math.abs(clientRect.left - clientX);
@@ -74065,7 +75019,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return clientX >= clientRect.left && clientX <= clientRect.right;
   };
   var findClosestClientRect = function (clientRects, clientX) {
-    return $_48w2ffmjm0ofu47.reduce(clientRects, function (oldClientRect, clientRect) {
+    return $_n452lmjnlpawsj.reduce(clientRects, function (oldClientRect, clientRect) {
       var oldDistance, newDistance;
       oldDistance = Math.min(distanceToRectLeft(oldClientRect, clientX), distanceToRectRight(oldClientRect, clientX));
       newDistance = Math.min(distanceToRectLeft(clientRect, clientX), distanceToRectRight(clientRect, clientX));
@@ -74095,7 +75049,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var clientRects = [];
     var collect = function (checkPosFn, node) {
       var lineRects;
-      lineRects = $_48w2ffmjm0ofu47.filter(getClientRects([node]), function (clientRect) {
+      lineRects = $_n452lmjnlpawsj.filter(getClientRects([node]), function (clientRect) {
         return !checkPosFn(clientRect, targetNodeRect);
       });
       clientRects = clientRects.concat(lineRects);
@@ -74107,7 +75061,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return clientRects;
   };
   var getFakeCaretTargets = function (root) {
-    return $_48w2ffmjm0ofu47.filter($_48w2ffmjm0ofu47.toArray(root.getElementsByTagName('*')), isFakeCaretTarget);
+    return $_n452lmjnlpawsj.filter($_n452lmjnlpawsj.toArray(root.getElementsByTagName('*')), isFakeCaretTarget);
   };
   var caretInfo = function (clientRect, clientX) {
     return {
@@ -74118,7 +75072,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var closestCaret = function (root, clientX, clientY) {
     var closestNodeRect;
     var contentEditableFalseNodeRects = getClientRects(getFakeCaretTargets(root));
-    var targetNodeRects = $_48w2ffmjm0ofu47.filter(contentEditableFalseNodeRects, function (rect) {
+    var targetNodeRects = $_n452lmjnlpawsj.filter(contentEditableFalseNodeRects, function (rect) {
       return clientY >= rect.top && clientY <= rect.bottom;
     });
     closestNodeRect = findClosestClientRect(targetNodeRects, clientX);
@@ -74139,7 +75093,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return state || containsXY(rect, clientX, clientY);
     }, false);
   };
-  var $_fss4pl5tjm0ofva0 = { isXYWithinRange: isXYWithinRange };
+  var $_5xpdav5wjnlpaxyf = { isXYWithinRange: isXYWithinRange };
 
   var setup$3 = function (editor) {
     var renderFocusCaret = first$1(function () {
@@ -74158,9 +75112,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       renderFocusCaret.cancel();
     });
   };
-  var $_2wqo7h5ujm0ofva2 = { setup: setup$3 };
+  var $_gfh1f95xjnlpaxyi = { setup: setup$3 };
 
-  var $_epe5n05vjm0ofva5 = {
+  var $_1qv0695yjnlpaxyk = {
     BACKSPACE: 8,
     DELETE: 46,
     DOWN: 40,
@@ -74174,12 +75128,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return e.shiftKey || e.ctrlKey || e.altKey || this.metaKeyPressed(e);
     },
     metaKeyPressed: function (e) {
-      return $_emqeydajm0oftwm.mac ? e.metaKey : e.ctrlKey && !e.altKey;
+      return $_cseqobajnlpawll.mac ? e.metaKey : e.ctrlKey && !e.altKey;
     }
   };
 
-  var isContentEditableTrue$5 = $_2oph0b1rjm0ofuee.isContentEditableTrue;
-  var isContentEditableFalse$9 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableTrue$5 = $_fy28ei1rjnlpax2o.isContentEditableTrue;
+  var isContentEditableFalse$9 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var isAfterContentEditableFalse$1 = isAfterContentEditableFalse;
   var isBeforeContentEditableFalse$1 = isBeforeContentEditableFalse;
   var getContentEditableRoot$1 = function (editor, node) {
@@ -74198,7 +75152,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var rootNode = editor.getBody();
     var fakeCaret = FakeCaret(editor.getBody(), isBlock, function () {
-      return $_2ois1m4vjm0ofv3q.hasFocus(editor);
+      return $_8odu5n4yjnlpaxsg.hasFocus(editor);
     });
     var realSelectionId = 'sel-' + editor.dom.uniqueId();
     var selectedContentEditableNode;
@@ -74252,7 +75206,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var registerEvents = function () {
       editor.on('mouseup', function (e) {
         var range$$1 = getRange();
-        if (range$$1.collapsed && $_rxugf50jm0ofv4s.isXYInContentArea(editor, e.clientX, e.clientY)) {
+        if (range$$1.collapsed && $_wem7o53jnlpaxtk.isXYInContentArea(editor, e.clientX, e.clientY)) {
           setRange(renderCaretAtRange(editor, range$$1, false));
         }
       });
@@ -74324,7 +75278,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         if (targetElm !== rootNode && targetElm.nodeName !== 'HTML' && !editor.dom.isChildOf(targetElm, rootNode)) {
           return;
         }
-        if ($_rxugf50jm0ofv4s.isXYInContentArea(editor, e.clientX, e.clientY) === false) {
+        if ($_wem7o53jnlpaxtk.isXYInContentArea(editor, e.clientX, e.clientY) === false) {
           return;
         }
         contentEditableRoot = getContentEditableRoot$1(editor, targetElm);
@@ -74334,7 +75288,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             setContentEditableSelection(selectNode(editor, contentEditableRoot));
           } else {
             removeContentEditableSelection();
-            if (!(isContentEditableTrue$5(contentEditableRoot) && e.shiftKey) && !$_fss4pl5tjm0ofva0.isXYWithinRange(e.clientX, e.clientY, editor.selection.getRng())) {
+            if (!(isContentEditableTrue$5(contentEditableRoot) && e.shiftKey) && !$_5xpdav5wjnlpaxyf.isXYWithinRange(e.clientX, e.clientY, editor.selection.getRng())) {
               hideFakeCaret();
               editor.selection.placeCaretAt(e.clientX, e.clientY);
             }
@@ -74354,7 +75308,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       });
       editor.on('keypress', function (e) {
-        if ($_epe5n05vjm0ofva5.modifierPressed(e)) {
+        if ($_1qv0695yjnlpaxyk.modifierPressed(e)) {
           return;
         }
         switch (e.keyCode) {
@@ -74398,7 +75352,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
       editor.on('copy', function (e) {
         var clipboardData = e.clipboardData;
-        if (!e.isDefaultPrevented() && e.clipboardData && !$_emqeydajm0oftwm.ie) {
+        if (!e.isDefaultPrevented() && e.clipboardData && !$_cseqobajnlpawll.ie) {
           var realSelectionElement = getRealSelectionElement();
           if (realSelectionElement) {
             e.preventDefault();
@@ -74408,8 +75362,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           }
         }
       });
-      $_73snkt5ojm0ofv95.init(editor);
-      $_2wqo7h5ujm0ofva2.setup(editor);
+      $_5gate55rjnlpaxxq.init(editor);
+      $_gfh1f95xjnlpaxyi.setup(editor);
     };
     var addCss = function () {
       var styles = editor.contentStyles, rootClass = '.mce-content-body';
@@ -74477,7 +75431,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (e.isDefaultPrevented()) {
         return null;
       }
-      $realSelectionContainer = $_6nhfso29jm0ofuij.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).fold(function () {
+      $realSelectionContainer = $_2kbu29jnlpax6t.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).fold(function () {
         return $([]);
       }, function (elm) {
         return $([elm.dom()]);
@@ -74488,7 +75442,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         $realSelectionContainer.appendTo(editor.getBody());
       }
       range$$1 = editor.dom.createRng();
-      if (targetClone === origTargetClone && $_emqeydajm0oftwm.ie) {
+      if (targetClone === origTargetClone && $_cseqobajnlpawll.ie) {
         $realSelectionContainer.empty().append('<p style="font-size: 0" data-mce-bogus="all">\xA0</p>').append(targetClone);
         range$$1.setStartAfter($realSelectionContainer[0].firstChild.firstChild);
         range$$1.setEndAfter(targetClone);
@@ -74502,8 +75456,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       sel = editor.selection.getSel();
       sel.removeAllRanges();
       sel.addRange(range$$1);
-      each($_29u9y827jm0ofuid.descendants(Element$$1.fromDom(editor.getBody()), '*[data-mce-selected]'), function (elm) {
-        $_cgh0m015jm0ofuao.remove(elm, 'data-mce-selected');
+      each($_cmitir27jnlpax6e.descendants(Element$$1.fromDom(editor.getBody()), '*[data-mce-selected]'), function (elm) {
+        $_521j8z15jnlpawz7.remove(elm, 'data-mce-selected');
       });
       node.setAttribute('data-mce-selected', '1');
       selectedContentEditableNode = node;
@@ -74513,10 +75467,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var removeContentEditableSelection = function () {
       if (selectedContentEditableNode) {
         selectedContentEditableNode.removeAttribute('data-mce-selected');
-        $_6nhfso29jm0ofuij.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).each($_75npdb1wjm0ofugl.remove);
+        $_2kbu29jnlpax6t.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).each($_azq8zm1wjnlpax4n.remove);
         selectedContentEditableNode = null;
       }
-      $_6nhfso29jm0ofuij.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).each($_75npdb1wjm0ofugl.remove);
+      $_2kbu29jnlpax6t.descendant(Element$$1.fromDom(editor.getBody()), '#' + realSelectionId).each($_azq8zm1wjnlpax4n.remove);
       selectedContentEditableNode = null;
     };
     var destroy = function () {
@@ -74526,7 +75480,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var hideFakeCaret = function () {
       fakeCaret.hide();
     };
-    if ($_emqeydajm0oftwm.ceFalse) {
+    if ($_cseqobajnlpawll.ceFalse) {
       registerEvents();
       addCss();
     }
@@ -74599,9 +75553,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var validate, elementRule, isValidElement, attr, attribsValue, validAttributesMap, validAttributePatterns;
       var attributesRequired, attributesDefault, attributesForced, processHtml;
       var anyAttributesRequired, selfClosing, tokenRegExp, attrRegExp, specialElements, attrValue, idCount = 0;
-      var decode = $_7ruegc1sjm0ofuek.decode;
+      var decode = $_bea7j51sjnlpax2u.decode;
       var fixSelfClosing;
-      var filteredUrlAttrs = $_cvczchljm0ofu3z.makeMap('src,href,data,background,formaction,poster,xlink:href');
+      var filteredUrlAttrs = $_1q1txeljnlpawsa.makeMap('src,href,data,background,formaction,poster,xlink:href');
       var scriptUriRegExp = /((java|vb)script|mhtml):/i;
       var processEndTag = function (name) {
         var pos, i;
@@ -74876,10 +75830,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       content = content.substring(0, index - matchLength) + content.substring(endTagIndex);
       bogusAllRegExp.lastIndex = index - matchLength;
     }
-    return $_2bohar2pjm0ofulx.trim(content);
+    return $_90hfb72rjnlpaxae.trim(content);
   };
   var trimExternal = trimInternal;
-  var $_3pw9gt5yjm0ofvao = {
+  var $_9cq8vj61jnlpaxzc = {
     trimExternal: trimExternal,
     trimInternal: trimInternal
   };
@@ -75002,7 +75956,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     buildScript(0, left.length, 0, right.length, script);
     return script;
   };
-  var $_ew4iit61jm0ofvb6 = {
+  var $_27o9im64jnlpaxzv = {
     KEEP: KEEP,
     DELETE: DELETE,
     INSERT: INSERT,
@@ -75010,11 +75964,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var getOuterHtml = function (elm) {
-    if ($_2oph0b1rjm0ofuee.isElement(elm)) {
+    if ($_fy28ei1rjnlpax2o.isElement(elm)) {
       return elm.outerHTML;
-    } else if ($_2oph0b1rjm0ofuee.isText(elm)) {
-      return $_7ruegc1sjm0ofuek.encodeRaw(elm.data, false);
-    } else if ($_2oph0b1rjm0ofuee.isComment(elm)) {
+    } else if ($_fy28ei1rjnlpax2o.isText(elm)) {
+      return $_bea7j51sjnlpax2u.encodeRaw(elm.data, false);
+    } else if ($_fy28ei1rjnlpax2o.isComment(elm)) {
       return '<!--' + elm.data + '-->';
     }
     return '';
@@ -75048,80 +76002,30 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var applyDiff = function (diff, elm) {
     var index = 0;
-    $_48w2ffmjm0ofu47.each(diff, function (action) {
-      if (action[0] === $_ew4iit61jm0ofvb6.KEEP) {
+    $_n452lmjnlpawsj.each(diff, function (action) {
+      if (action[0] === $_27o9im64jnlpaxzv.KEEP) {
         index++;
-      } else if (action[0] === $_ew4iit61jm0ofvb6.INSERT) {
+      } else if (action[0] === $_27o9im64jnlpaxzv.INSERT) {
         insertAt(elm, action[1], index);
         index++;
-      } else if (action[0] === $_ew4iit61jm0ofvb6.DELETE) {
+      } else if (action[0] === $_27o9im64jnlpaxzv.DELETE) {
         removeAt(elm, index);
       }
     });
   };
   var read$3 = function (elm) {
-    return $_48w2ffmjm0ofu47.filter($_48w2ffmjm0ofu47.map(elm.childNodes, getOuterHtml), function (item) {
+    return $_n452lmjnlpawsj.filter($_n452lmjnlpawsj.map(elm.childNodes, getOuterHtml), function (item) {
       return item.length > 0;
     });
   };
   var write = function (fragments, elm) {
-    var currentFragments = $_48w2ffmjm0ofu47.map(elm.childNodes, getOuterHtml);
-    applyDiff($_ew4iit61jm0ofvb6.diff(currentFragments, fragments), elm);
+    var currentFragments = $_n452lmjnlpawsj.map(elm.childNodes, getOuterHtml);
+    applyDiff($_27o9im64jnlpaxzv.diff(currentFragments, fragments), elm);
     return elm;
   };
-  var $_ghigzs60jm0ofvb3 = {
+  var $_12gl6x63jnlpaxzs = {
     read: read$3,
     write: write
-  };
-
-  var fromHtml$1 = function (html, scope) {
-    var doc = scope || document;
-    var div = doc.createElement('div');
-    div.innerHTML = html;
-    return $_8mvo7w18jm0ofub9.children(Element$$1.fromDom(div));
-  };
-  var fromTags = function (tags, scope) {
-    return map(tags, function (x) {
-      return Element$$1.fromTag(x, scope);
-    });
-  };
-  var fromText$1 = function (texts, scope) {
-    return map(texts, function (x) {
-      return Element$$1.fromText(x, scope);
-    });
-  };
-  var fromDom$1 = function (nodes) {
-    return map(nodes, Element$$1.fromDom);
-  };
-  var $_a4ykxo63jm0ofvbc = {
-    fromHtml: fromHtml$1,
-    fromTags: fromTags,
-    fromText: fromText$1,
-    fromDom: fromDom$1
-  };
-
-  var get$6 = function (element) {
-    return element.dom().innerHTML;
-  };
-  var set$3 = function (element, content) {
-    var owner = $_8mvo7w18jm0ofub9.owner(element);
-    var docDom = owner.dom();
-    var fragment = Element$$1.fromDom(docDom.createDocumentFragment());
-    var contentElements = $_a4ykxo63jm0ofvbc.fromHtml(content, docDom);
-    $_43bojf1xjm0ofugp.append(fragment, contentElements);
-    $_75npdb1wjm0ofugl.empty(element);
-    $_8gbbpa1yjm0ofugu.append(element, fragment);
-  };
-  var getOuter = function (element) {
-    var container = Element$$1.fromTag('div');
-    var clone = Element$$1.fromDom(element.dom().cloneNode(true));
-    $_8gbbpa1yjm0ofugu.append(container, clone);
-    return get$6(container);
-  };
-  var $_ck4kkb62jm0ofvbb = {
-    get: get$6,
-    set: set$3,
-    getOuter: getOuter
   };
 
   var undoLevelDocument = Cell(Option.none());
@@ -75155,9 +76059,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var createFromEditor = function (editor) {
     var fragments, content, trimmedFragments;
-    fragments = $_ghigzs60jm0ofvb3.read(editor.getBody());
+    fragments = $_12gl6x63jnlpaxzs.read(editor.getBody());
     trimmedFragments = bind(fragments, function (html) {
-      var trimmed = $_3pw9gt5yjm0ofvao.trimInternal(editor.serializer, html);
+      var trimmed = $_9cq8vj61jnlpaxzc.trimInternal(editor.serializer, html);
       return trimmed.length > 0 ? [trimmed] : [];
     });
     content = trimmedFragments.join('');
@@ -75165,7 +76069,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var applyToEditor = function (editor, level, before) {
     if (level.type === 'fragmented') {
-      $_ghigzs60jm0ofvb3.write(level.fragments, editor.getBody());
+      $_12gl6x63jnlpaxzs.write(level.fragments, editor.getBody());
     } else {
       editor.setContent(level.content, { format: 'raw' });
     }
@@ -75176,9 +76080,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getCleanLevelContent = function (level) {
     var elm = Element$$1.fromTag('body', lazyTempDocument());
-    $_ck4kkb62jm0ofvbb.set(elm, getLevelContent(level));
-    each($_29u9y827jm0ofuid.descendants(elm, '*[data-mce-bogus]'), $_75npdb1wjm0ofugl.unwrap);
-    return $_ck4kkb62jm0ofvbb.get(elm);
+    $_am4twv2jjnlpax8k.set(elm, getLevelContent(level));
+    each($_cmitir27jnlpax6e.descendants(elm, '*[data-mce-bogus]'), $_azq8zm1wjnlpax4n.unwrap);
+    return $_am4twv2jjnlpax8k.get(elm);
   };
   var hasEqualContent = function (level1, level2) {
     return getLevelContent(level1) === getLevelContent(level2);
@@ -75195,7 +76099,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return hasEqualCleanedContent(level1, level2);
     }
   };
-  var $_9dzzka5xjm0ofvad = {
+  var $_4dwaci60jnlpaxyt = {
     createFragmentedLevel: createFragmentedLevel,
     createCompleteLevel: createCompleteLevel,
     createFromEditor: createFromEditor,
@@ -75259,7 +76163,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (keyCode === 46 || keyCode === 8) {
         editor.nodeChanged();
       }
-      if (isFirstTypedCharacter && self.typing && $_9dzzka5xjm0ofvad.isEq($_9dzzka5xjm0ofvad.createFromEditor(editor), data[0]) === false) {
+      if (isFirstTypedCharacter && self.typing && $_4dwaci60jnlpaxyt.isEq($_4dwaci60jnlpaxyt.createFromEditor(editor), data[0]) === false) {
         if (editor.isDirty() === false) {
           setDirty(true);
           editor.fire('change', {
@@ -75319,16 +76223,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       typing: false,
       beforeChange: function () {
         if (isUnlocked()) {
-          beforeBookmark = $_cmrtxr2jjm0ofukj.getUndoBookmark(editor.selection);
+          beforeBookmark = $_5l0mu32ljnlpax8x.getUndoBookmark(editor.selection);
         }
       },
       add: function (level, event) {
         var i;
         var settings = editor.settings;
         var lastLevel, currentLevel;
-        currentLevel = $_9dzzka5xjm0ofvad.createFromEditor(editor);
+        currentLevel = $_4dwaci60jnlpaxyt.createFromEditor(editor);
         level = level || {};
-        level = $_cvczchljm0ofu3z.extend(level, currentLevel);
+        level = $_1q1txeljnlpawsa.extend(level, currentLevel);
         if (isUnlocked() === false || editor.removed) {
           return null;
         }
@@ -75340,7 +76244,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           }).isDefaultPrevented()) {
           return null;
         }
-        if (lastLevel && $_9dzzka5xjm0ofvad.isEq(lastLevel, level)) {
+        if (lastLevel && $_4dwaci60jnlpaxyt.isEq(lastLevel, level)) {
           return null;
         }
         if (data[index]) {
@@ -75355,7 +76259,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             index = data.length;
           }
         }
-        level.bookmark = $_cmrtxr2jjm0ofukj.getUndoBookmark(editor.selection);
+        level.bookmark = $_5l0mu32ljnlpax8x.getUndoBookmark(editor.selection);
         if (index < data.length - 1) {
           data.length = index + 1;
         }
@@ -75382,7 +76286,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
         if (index > 0) {
           level = data[--index];
-          $_9dzzka5xjm0ofvad.applyToEditor(editor, level, true);
+          $_4dwaci60jnlpaxyt.applyToEditor(editor, level, true);
           setDirty(true);
           editor.fire('undo', { level: level });
         }
@@ -75392,7 +76296,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         var level;
         if (index < data.length - 1) {
           level = data[++index];
-          $_9dzzka5xjm0ofvad.applyToEditor(editor, level, false);
+          $_4dwaci60jnlpaxyt.applyToEditor(editor, level, false);
           setDirty(true);
           editor.fire('redo', { level: level });
         }
@@ -75406,7 +76310,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         editor.fire('ClearUndos');
       },
       hasUndo: function () {
-        return index > 0 || self.typing && data[0] && !$_9dzzka5xjm0ofvad.isEq($_9dzzka5xjm0ofvad.createFromEditor(editor), data[0]);
+        return index > 0 || self.typing && data[0] && !$_4dwaci60jnlpaxyt.isEq($_4dwaci60jnlpaxyt.createFromEditor(editor), data[0]);
       },
       hasRedo: function () {
         return index < data.length - 1 && !self.typing;
@@ -75430,7 +76334,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         if (self.transact(callback1)) {
           bookmark = data[index].bookmark;
           lastLevel = data[index - 1];
-          $_9dzzka5xjm0ofvad.applyToEditor(editor, lastLevel, true);
+          $_4dwaci60jnlpaxyt.applyToEditor(editor, lastLevel, true);
           if (self.transact(callback2)) {
             data[index - 1].beforeBookmark = bookmark;
           }
@@ -75440,7 +76344,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return self;
   }
 
-  var isEq$4 = $_1mo0ng3ajm0ofuqe.isEq;
+  var isEq$4 = $_dlfh233cjnlpaxes.isEq;
   var matchesUnInheritedFormatSelector = function (ed, node, name) {
     var formatList = ed.formatter.get(name);
     if (formatList) {
@@ -75490,19 +76394,19 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             if (itemName === 'attributes') {
               value = dom.getAttrib(node, key);
             } else {
-              value = $_1mo0ng3ajm0ofuqe.getStyle(dom, node, key);
+              value = $_dlfh233cjnlpaxes.getStyle(dom, node, key);
             }
             if (similar && !value && !format.exact) {
               return;
             }
-            if ((!similar || format.exact) && !isEq$4(value, $_1mo0ng3ajm0ofuqe.normalizeStyleValue(dom, $_1mo0ng3ajm0ofuqe.replaceVars(items[key], vars), key))) {
+            if ((!similar || format.exact) && !isEq$4(value, $_dlfh233cjnlpaxes.normalizeStyleValue(dom, $_dlfh233cjnlpaxes.replaceVars(items[key], vars), key))) {
               return;
             }
           }
         }
       } else {
         for (i = 0; i < items.length; i++) {
-          if (itemName === 'attributes' ? dom.getAttrib(node, items[i]) : $_1mo0ng3ajm0ofuqe.getStyle(dom, node, items[i])) {
+          if (itemName === 'attributes' ? dom.getAttrib(node, items[i]) : $_dlfh233cjnlpaxes.getStyle(dom, node, items[i])) {
             return format;
           }
         }
@@ -75570,7 +76474,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var dom = editor.dom;
     if (formatList) {
       startNode = editor.selection.getStart();
-      parents = $_1mo0ng3ajm0ofuqe.getParents(dom, startNode);
+      parents = $_dlfh233cjnlpaxes.getParents(dom, startNode);
       for (x = formatList.length - 1; x >= 0; x--) {
         selector = formatList[x].selector;
         if (!selector || formatList[x].defaultBlock) {
@@ -75585,7 +76489,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return false;
   };
-  var $_8hq6av67jm0ofvco = {
+  var $_706y6v68jnlpay1a = {
     matchNode: matchNode,
     matchName: matchName,
     match: match,
@@ -75599,7 +76503,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var split$1 = function (rng) {
     var startContainer = rng.startContainer, startOffset = rng.startOffset, endContainer = rng.endContainer, endOffset = rng.endOffset;
-    if (startContainer === endContainer && $_2oph0b1rjm0ofuee.isText(startContainer)) {
+    if (startContainer === endContainer && $_fy28ei1rjnlpax2o.isText(startContainer)) {
       if (startOffset > 0 && startOffset < startContainer.nodeValue.length) {
         endContainer = splitText(startContainer, startOffset);
         startContainer = endContainer.previousSibling;
@@ -75613,11 +76517,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       }
     } else {
-      if ($_2oph0b1rjm0ofuee.isText(startContainer) && startOffset > 0 && startOffset < startContainer.nodeValue.length) {
+      if ($_fy28ei1rjnlpax2o.isText(startContainer) && startOffset > 0 && startOffset < startContainer.nodeValue.length) {
         startContainer = splitText(startContainer, startOffset);
         startOffset = 0;
       }
-      if ($_2oph0b1rjm0ofuee.isText(endContainer) && endOffset > 0 && endOffset < endContainer.nodeValue.length) {
+      if ($_fy28ei1rjnlpax2o.isText(endContainer) && endOffset > 0 && endOffset < endContainer.nodeValue.length) {
         endContainer = splitText(endContainer, endOffset).previousSibling;
         endOffset = endContainer.nodeValue.length;
       }
@@ -75629,9 +76533,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       endOffset: endOffset
     };
   };
-  var $_91rr1e68jm0ofvct = { split: split$1 };
+  var $_fvyfxh69jnlpay1e = { split: split$1 };
 
-  var ZWSP$1 = $_2bohar2pjm0ofulx.ZWSP;
+  var ZWSP$1 = $_90hfb72rjnlpaxae.ZWSP;
   var CARET_ID$1 = '_mce_caret';
   var importNode = function (ownerDocument, node) {
     return ownerDocument.importNode(node, true);
@@ -75666,13 +76570,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var createCaretContainer = function (fill) {
     var caretContainer = Element$$1.fromTag('span');
-    $_cgh0m015jm0ofuao.setAll(caretContainer, {
+    $_521j8z15jnlpawz7.setAll(caretContainer, {
       'id': CARET_ID$1,
       'data-mce-bogus': '1',
       'data-mce-type': 'format-caret'
     });
     if (fill) {
-      $_8gbbpa1yjm0ofugu.append(caretContainer, Element$$1.fromText(ZWSP$1));
+      $_ag89ax1yjnlpax4x.append(caretContainer, Element$$1.fromText(ZWSP$1));
     }
     return caretContainer;
   };
@@ -75704,7 +76608,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       dom.remove(node, true);
     }
     if (block && dom.isEmpty(block)) {
-      $_5n19nv3ljm0ofusy.fillWithPaddingBr(Element$$1.fromDom(block));
+      $_azhpc63njnlpaxgw.fillWithPaddingBr(Element$$1.fromDom(block));
     }
     selection.setRng(rng);
   };
@@ -75721,11 +76625,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var insertCaretContainerNode = function (editor, caretContainer, formatNode) {
-    var dom = editor.dom, block = dom.getParent(formatNode, $_cqjn032ljm0ofukz.curry($_1mo0ng3ajm0ofuqe.isTextBlock, editor));
+    var dom = editor.dom, block = dom.getParent(formatNode, $_dv6bef2njnlpax9l.curry($_dlfh233cjnlpaxes.isTextBlock, editor));
     if (block && dom.isEmpty(block)) {
       formatNode.parentNode.replaceChild(caretContainer, formatNode);
     } else {
-      $_5n19nv3ljm0ofusy.removeTrailingBr(Element$$1.fromDom(formatNode));
+      $_azhpc63njnlpaxgw.removeTrailingBr(Element$$1.fromDom(formatNode));
       if (dom.isEmpty(formatNode)) {
         formatNode.parentNode.replaceChild(caretContainer, formatNode);
       } else {
@@ -75758,8 +76662,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (text && offset > 0 && offset < text.length && wordcharRegex.test(text.charAt(offset)) && wordcharRegex.test(text.charAt(offset - 1))) {
       bookmark = selection.getBookmark();
       rng.collapse(true);
-      rng = $_24nwrb2ujm0ofuml.expandRng(editor, rng, editor.formatter.get(name));
-      rng = $_91rr1e68jm0ofvct.split(rng);
+      rng = $_3cscnj2wjnlpaxau.expandRng(editor, rng, editor.formatter.get(name));
+      rng = $_fvyfxh69jnlpay1e.split(rng);
       editor.formatter.apply(name, vars, rng);
       selection.moveToBookmark(bookmark);
     } else {
@@ -75791,7 +76695,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       node = node.parentNode;
     }
     while (node) {
-      if ($_8hq6av67jm0ofvco.matchNode(editor, node, name, vars, similar)) {
+      if ($_706y6v68jnlpay1a.matchNode(editor, node, name, vars, similar)) {
         formatNode = node;
         break;
       }
@@ -75807,8 +76711,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (hasContentAfter) {
       bookmark = selection.getBookmark();
       rng.collapse(true);
-      var expandedRng = $_24nwrb2ujm0ofuml.expandRng(editor, rng, editor.formatter.get(name), true);
-      expandedRng = $_91rr1e68jm0ofvct.split(expandedRng);
+      var expandedRng = $_3cscnj2wjnlpaxau.expandRng(editor, rng, editor.formatter.get(name), true);
+      expandedRng = $_fvyfxh69jnlpay1e.split(expandedRng);
       editor.formatter.remove(name, vars, expandedRng);
       selection.moveToBookmark(bookmark);
     } else {
@@ -75846,18 +76750,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var replaceWithCaretFormat = function (targetNode, formatNodes) {
     var caretContainer = createCaretContainer(false);
     var innerMost = insertFormatNodesIntoCaretContainer(formatNodes, caretContainer.dom());
-    $_8gbbpa1yjm0ofugu.before(Element$$1.fromDom(targetNode), caretContainer);
-    $_75npdb1wjm0ofugl.remove(Element$$1.fromDom(targetNode));
+    $_ag89ax1yjnlpax4x.before(Element$$1.fromDom(targetNode), caretContainer);
+    $_azq8zm1wjnlpax4n.remove(Element$$1.fromDom(targetNode));
     return CaretPosition$1(innerMost, 0);
   };
   var isFormatElement = function (editor, element) {
     var inlineElements = editor.schema.getTextInlineElements();
-    return inlineElements.hasOwnProperty($_byto2911jm0ofu9v.name(element)) && !isCaretNode(element.dom()) && !$_2oph0b1rjm0ofuee.isBogus(element.dom());
+    return inlineElements.hasOwnProperty($_7u5fzs11jnlpawv6.name(element)) && !isCaretNode(element.dom()) && !$_fy28ei1rjnlpax2o.isBogus(element.dom());
   };
 
   var postProcessHooks = {};
-  var filter$2 = $_48w2ffmjm0ofu47.filter;
-  var each$12 = $_48w2ffmjm0ofu47.each;
+  var filter$2 = $_n452lmjnlpawsj.filter;
+  var each$12 = $_n452lmjnlpawsj.each;
   var addPostProcessHook = function (name, hook) {
     var hooks = postProcessHooks[name];
     if (!hooks) {
@@ -75874,13 +76778,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var rng = editor.selection.getRng();
     var isPre, blocks;
     var hasPreSibling = function (pre) {
-      return isPre(pre.previousSibling) && $_48w2ffmjm0ofu47.indexOf(blocks, pre.previousSibling) !== -1;
+      return isPre(pre.previousSibling) && $_n452lmjnlpawsj.indexOf(blocks, pre.previousSibling) !== -1;
     };
     var joinPre = function (pre1, pre2) {
       DomQuery(pre2).remove();
       DomQuery(pre1).append('<br><br>').append(pre2.childNodes);
     };
-    isPre = $_2oph0b1rjm0ofuee.matchNodeNames('pre');
+    isPre = $_fy28ei1rjnlpax2o.matchNodeNames('pre');
     if (!rng.collapsed) {
       blocks = editor.selection.getSelectedBlocks();
       each$12(filter$2(filter$2(blocks, isPre), hasPreSibling), function (pre) {
@@ -75888,11 +76792,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     }
   });
-  var $_8gdehl69jm0ofvcv = { postProcess: postProcess };
+  var $_48059m6ajnlpay1h = { postProcess: postProcess };
 
   var MCE_ATTR_RE = /^(src|href|style)$/;
-  var each$13 = $_cvczchljm0ofu3z.each;
-  var isEq$5 = $_1mo0ng3ajm0ofuqe.isEq;
+  var each$13 = $_1q1txeljnlpawsa.each;
+  var isEq$5 = $_dlfh233cjnlpaxes.isEq;
   var isTableCell$4 = function (node) {
     return /^(TH|TD)$/.test(node.nodeName);
   };
@@ -75900,17 +76804,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var container, offset, lastIdx;
     container = rng[start ? 'startContainer' : 'endContainer'];
     offset = rng[start ? 'startOffset' : 'endOffset'];
-    if ($_2oph0b1rjm0ofuee.isElement(container)) {
+    if ($_fy28ei1rjnlpax2o.isElement(container)) {
       lastIdx = container.childNodes.length - 1;
       if (!start && offset) {
         offset--;
       }
       container = container.childNodes[offset > lastIdx ? lastIdx : offset];
     }
-    if ($_2oph0b1rjm0ofuee.isText(container) && start && offset >= container.nodeValue.length) {
+    if ($_fy28ei1rjnlpax2o.isText(container) && start && offset >= container.nodeValue.length) {
       container = new TreeWalker(container, ed.getBody()).next() || container;
     }
-    if ($_2oph0b1rjm0ofuee.isText(container) && !start && offset === 0) {
+    if ($_fy28ei1rjnlpax2o.isText(container) && !start && offset === 0) {
       container = new TreeWalker(container, ed.getBody()).prev() || container;
     }
     return container;
@@ -75943,14 +76847,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return true;
     }
     if (format.selector) {
-      return $_2oph0b1rjm0ofuee.isElement(node) && dom.is(node, format.selector);
+      return $_fy28ei1rjnlpax2o.isElement(node) && dom.is(node, format.selector);
     }
   };
   var isColorFormatAndAnchor = function (node, format) {
     return format.links && node.tagName === 'A';
   };
   var find$4 = function (dom, node, next, inc) {
-    node = $_1mo0ng3ajm0ofuqe.getNonWhiteSpaceSibling(node, next, inc);
+    node = $_dlfh233cjnlpaxes.getNonWhiteSpaceSibling(node, next, inc);
     return !node || (node.nodeName === 'BR' || dom.isBlock(node));
   };
   var removeNode$1 = function (ed, node, format) {
@@ -75970,8 +76874,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       } else {
         if (parentNode === dom.getRoot()) {
           if (!format.list_block || !isEq$5(node, format.list_block)) {
-            each$13($_cvczchljm0ofu3z.grep(node.childNodes), function (node) {
-              if ($_1mo0ng3ajm0ofuqe.isValid(ed, forcedRootBlock, node.nodeName.toLowerCase())) {
+            each$13($_1q1txeljnlpawsa.grep(node.childNodes), function (node) {
+              if ($_dlfh233cjnlpaxes.isValid(ed, forcedRootBlock, node.nodeName.toLowerCase())) {
                 if (!rootBlockElm) {
                   rootBlockElm = wrap$2(dom, node, forcedRootBlock);
                   dom.setAttribs(rootBlockElm, ed.settings.forced_root_block_attrs);
@@ -75999,12 +76903,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     if (format.remove !== 'all') {
       each$13(format.styles, function (value, name) {
-        value = $_1mo0ng3ajm0ofuqe.normalizeStyleValue(dom, $_1mo0ng3ajm0ofuqe.replaceVars(value, vars), name);
+        value = $_dlfh233cjnlpaxes.normalizeStyleValue(dom, $_dlfh233cjnlpaxes.replaceVars(value, vars), name);
         if (typeof name === 'number') {
           name = value;
           compareNode = 0;
         }
-        if (format.remove_similar || (!compareNode || isEq$5($_1mo0ng3ajm0ofuqe.getStyle(dom, compareNode, name), value))) {
+        if (format.remove_similar || (!compareNode || isEq$5($_dlfh233cjnlpaxes.getStyle(dom, compareNode, name), value))) {
           dom.setStyle(node, name, '');
         }
         stylesModified = 1;
@@ -76015,7 +76919,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
       each$13(format.attributes, function (value, name) {
         var valueOut;
-        value = $_1mo0ng3ajm0ofuqe.replaceVars(value, vars);
+        value = $_dlfh233cjnlpaxes.replaceVars(value, vars);
         if (typeof name === 'number') {
           name = value;
           compareNode = 0;
@@ -76046,7 +76950,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       });
       each$13(format.classes, function (value) {
-        value = $_1mo0ng3ajm0ofuqe.replaceVars(value, vars);
+        value = $_dlfh233cjnlpaxes.replaceVars(value, vars);
         if (!compareNode || dom.hasClass(compareNode, value)) {
           dom.removeClass(node, value);
         }
@@ -76066,10 +76970,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var findFormatRoot = function (editor, container, name, vars, similar) {
     var formatRoot;
-    each$13($_1mo0ng3ajm0ofuqe.getParents(editor.dom, container.parentNode).reverse(), function (parent) {
+    each$13($_dlfh233cjnlpaxes.getParents(editor.dom, container.parentNode).reverse(), function (parent) {
       var format;
       if (!formatRoot && parent.id !== '_start' && parent.id !== '_end') {
-        format = $_8hq6av67jm0ofvco.matchNode(editor, parent, name, vars, similar);
+        format = $_706y6v68jnlpay1a.matchNode(editor, parent, name, vars, similar);
         if (format && format.split !== false) {
           formatRoot = parent;
         }
@@ -76121,12 +77025,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var process = function (node) {
       var children, i, l, lastContentEditable, hasContentEditableState;
-      if ($_2oph0b1rjm0ofuee.isElement(node) && dom.getContentEditable(node)) {
+      if ($_fy28ei1rjnlpax2o.isElement(node) && dom.getContentEditable(node)) {
         lastContentEditable = contentEditable;
         contentEditable = dom.getContentEditable(node) === 'true';
         hasContentEditableState = true;
       }
-      children = $_cvczchljm0ofu3z.grep(node.childNodes);
+      children = $_1q1txeljnlpawsa.grep(node.childNodes);
       if (contentEditable && !hasContentEditableState) {
         for (i = 0, l = formatList.length; i < l; i++) {
           if (removeFormat(ed, formatList[i], vars, node, node)) {
@@ -76148,10 +77052,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var unwrap = function (start) {
       var node = dom.get(start ? '_start' : '_end');
       var out = node[start ? 'firstChild' : 'lastChild'];
-      if ($_5lihpr2vjm0ofumt.isBookmarkNode(out)) {
+      if ($_43l8qj2xjnlpaxb1.isBookmarkNode(out)) {
         out = out[start ? 'firstChild' : 'lastChild'];
       }
-      if ($_2oph0b1rjm0ofuee.isText(out) && out.data.length === 0) {
+      if ($_fy28ei1rjnlpax2o.isText(out) && out.data.length === 0) {
         out = start ? node.previousSibling || node.nextSibling : node.nextSibling || node.previousSibling;
       }
       dom.remove(node, true);
@@ -76160,9 +77064,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var removeRngStyle = function (rng) {
       var startContainer, endContainer;
       var commonAncestorContainer = rng.commonAncestorContainer;
-      rng = $_24nwrb2ujm0ofuml.expandRng(ed, rng, formatList, true);
+      rng = $_3cscnj2wjnlpaxau.expandRng(ed, rng, formatList, true);
       if (format.split) {
-        rng = $_91rr1e68jm0ofvct.split(rng);
+        rng = $_fvyfxh69jnlpay1e.split(rng);
         startContainer = getContainer(ed, rng, true);
         endContainer = getContainer(ed, rng);
         if (startContainer !== endContainer) {
@@ -76205,10 +77109,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         rng.endContainer = endContainer.parentNode ? endContainer.parentNode : endContainer;
         rng.endOffset = dom.nodeIndex(endContainer) + 1;
       }
-      $_5f1qhm3bjm0ofuqj.walk(dom, rng, function (nodes) {
+      $_6wozuu3djnlpaxew.walk(dom, rng, function (nodes) {
         each$13(nodes, function (node) {
           process(node);
-          if ($_2oph0b1rjm0ofuee.isElement(node) && ed.dom.getStyle(node, 'text-decoration') === 'underline' && node.parentNode && $_1mo0ng3ajm0ofuqe.getTextDecoration(dom, node.parentNode) === 'underline') {
+          if ($_fy28ei1rjnlpax2o.isElement(node) && ed.dom.getStyle(node, 'text-decoration') === 'underline' && node.parentNode && $_dlfh233cjnlpaxes.getTextDecoration(dom, node.parentNode) === 'underline') {
             removeFormat(ed, {
               deep: false,
               exact: true,
@@ -76242,25 +77146,25 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return;
     }
     if (!selection.isCollapsed() || !format.inline || dom.select('td[data-mce-selected],th[data-mce-selected]').length) {
-      bookmark = $_cmrtxr2jjm0ofukj.getPersistentBookmark(ed.selection, true);
+      bookmark = $_5l0mu32ljnlpax8x.getPersistentBookmark(ed.selection, true);
       removeRngStyle(selection.getRng());
       selection.moveToBookmark(bookmark);
-      if (format.inline && $_8hq6av67jm0ofvco.match(ed, name, vars, selection.getStart())) {
-        $_1mo0ng3ajm0ofuqe.moveStart(dom, selection, selection.getRng());
+      if (format.inline && $_706y6v68jnlpay1a.match(ed, name, vars, selection.getStart())) {
+        $_dlfh233cjnlpaxes.moveStart(dom, selection, selection.getRng());
       }
       ed.nodeChanged();
     } else {
       removeCaretFormat(ed, name, vars, similar);
     }
   };
-  var $_1f89kc6bjm0ofvd9 = {
+  var $_4dimpr6cjnlpay1t = {
     removeFormat: removeFormat,
     remove: remove$8
   };
 
-  var each$14 = $_cvczchljm0ofu3z.each;
+  var each$14 = $_1q1txeljnlpawsa.each;
   var isElementNode = function (node) {
-    return node && node.nodeType === 1 && !$_5lihpr2vjm0ofumt.isBookmarkNode(node) && !isCaretNode(node) && !$_2oph0b1rjm0ofuee.isBogus(node);
+    return node && node.nodeType === 1 && !$_43l8qj2xjnlpaxb1.isBookmarkNode(node) && !isCaretNode(node) && !$_fy28ei1rjnlpax2o.isBogus(node);
   };
   var findElementSibling = function (node, siblingName) {
     var sibling;
@@ -76268,7 +77172,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (sibling.nodeType === 3 && sibling.nodeValue.length !== 0) {
         return node;
       }
-      if (sibling.nodeType === 1 && !$_5lihpr2vjm0ofumt.isBookmarkNode(sibling)) {
+      if (sibling.nodeType === 1 && !$_43l8qj2xjnlpaxb1.isBookmarkNode(sibling)) {
         return sibling;
       }
     }
@@ -76287,7 +77191,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           prev.appendChild(tmpSibling);
         }
         dom.remove(next);
-        $_cvczchljm0ofu3z.each($_cvczchljm0ofu3z.grep(next.childNodes), function (node) {
+        $_1q1txeljnlpawsa.each($_1q1txeljnlpawsa.grep(next.childNodes), function (node) {
           prev.appendChild(node);
         });
         return prev;
@@ -76309,7 +77213,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var hasStyle = function (dom, name) {
     return curry(function (name, node) {
-      return !!(node && $_1mo0ng3ajm0ofuqe.getStyle(dom, node, name));
+      return !!(node && $_dlfh233cjnlpaxes.getStyle(dom, node, name));
     }, name);
   };
   var applyStyle = function (dom, name, value) {
@@ -76329,7 +77233,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var processUnderlineAndColor = function (dom, node) {
     var textDecoration;
     if (node.nodeType === 1 && node.parentNode && node.parentNode.nodeType === 1) {
-      textDecoration = $_1mo0ng3ajm0ofuqe.getTextDecoration(dom, node.parentNode);
+      textDecoration = $_dlfh233cjnlpaxes.getTextDecoration(dom, node.parentNode);
       if (dom.getStyle(node, 'color') && textDecoration) {
         dom.setStyle(node, 'text-decoration', textDecoration);
       } else if (dom.getStyle(node, 'text-decoration') === textDecoration) {
@@ -76339,13 +77243,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var mergeUnderlineAndColor = function (dom, format, vars, node) {
     if (format.styles.color || format.styles.textDecoration) {
-      $_cvczchljm0ofu3z.walk(node, curry(processUnderlineAndColor, dom), 'childNodes');
+      $_1q1txeljnlpawsa.walk(node, curry(processUnderlineAndColor, dom), 'childNodes');
       processUnderlineAndColor(dom, node);
     }
   };
   var mergeBackgroundColorAndFontSize = function (dom, format, vars, node) {
     if (format.styles && format.styles.backgroundColor) {
-      processChildElements(node, hasStyle(dom, 'fontSize'), applyStyle(dom, 'backgroundColor', $_1mo0ng3ajm0ofuqe.replaceVars(format.styles.backgroundColor, vars)));
+      processChildElements(node, hasStyle(dom, 'fontSize'), applyStyle(dom, 'backgroundColor', $_dlfh233cjnlpaxes.replaceVars(format.styles.backgroundColor, vars)));
     }
   };
   var mergeSubSup = function (dom, format, vars, node) {
@@ -76356,8 +77260,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var mergeSiblings = function (dom, format, vars, node) {
     if (node && format.merge_siblings !== false) {
-      node = mergeSiblingsNodes(dom, $_1mo0ng3ajm0ofuqe.getNonWhiteSpaceSibling(node), node);
-      node = mergeSiblingsNodes(dom, node, $_1mo0ng3ajm0ofuqe.getNonWhiteSpaceSibling(node, true));
+      node = mergeSiblingsNodes(dom, $_dlfh233cjnlpaxes.getNonWhiteSpaceSibling(node), node);
+      node = mergeSiblingsNodes(dom, node, $_dlfh233cjnlpaxes.getNonWhiteSpaceSibling(node, true));
     }
   };
   var clearChildStyles = function (dom, format, node) {
@@ -76378,27 +77282,27 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         if (!isElementNode(child)) {
           return;
         }
-        $_1f89kc6bjm0ofvd9.removeFormat(editor, format, vars, child, format.exact ? child : null);
+        $_4dimpr6cjnlpay1t.removeFormat(editor, format, vars, child, format.exact ? child : null);
       });
       clearChildStyles(editor.dom, format, node);
     });
   };
   var mergeWithParents = function (editor, format, name, vars, node) {
-    if ($_8hq6av67jm0ofvco.matchNode(editor, node.parentNode, name, vars)) {
-      if ($_1f89kc6bjm0ofvd9.removeFormat(editor, format, vars, node)) {
+    if ($_706y6v68jnlpay1a.matchNode(editor, node.parentNode, name, vars)) {
+      if ($_4dimpr6cjnlpay1t.removeFormat(editor, format, vars, node)) {
         return;
       }
     }
     if (format.merge_with_parents) {
       editor.dom.getParent(node.parentNode, function (parent) {
-        if ($_8hq6av67jm0ofvco.matchNode(editor, parent, name, vars)) {
-          $_1f89kc6bjm0ofvd9.removeFormat(editor, format, vars, node);
+        if ($_706y6v68jnlpay1a.matchNode(editor, parent, name, vars)) {
+          $_4dimpr6cjnlpay1t.removeFormat(editor, format, vars, node);
           return true;
         }
       });
     }
   };
-  var $_6q77xb6ajm0ofvcy = {
+  var $_4luhzy6bjnlpay1j = {
     mergeWithChildren: mergeWithChildren,
     mergeUnderlineAndColor: mergeUnderlineAndColor,
     mergeBackgroundColorAndFontSize: mergeBackgroundColorAndFontSize,
@@ -76407,9 +77311,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     mergeWithParents: mergeWithParents
   };
 
-  var each$15 = $_cvczchljm0ofu3z.each;
+  var each$15 = $_1q1txeljnlpawsa.each;
   var isElementNode$1 = function (node) {
-    return node && node.nodeType === 1 && !$_5lihpr2vjm0ofumt.isBookmarkNode(node) && !isCaretNode(node) && !$_2oph0b1rjm0ofuee.isBogus(node);
+    return node && node.nodeType === 1 && !$_43l8qj2xjnlpaxb1.isBookmarkNode(node) && !isCaretNode(node) && !$_fy28ei1rjnlpax2o.isBogus(node);
   };
   var applyFormat = function (ed, name, vars, node) {
     var formatList = ed.formatter.get(name);
@@ -76424,7 +77328,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           fmt.onformat(elm, fmt, vars, node);
         }
         each$15(fmt.styles, function (value, name) {
-          dom.setStyle(elm, name, $_1mo0ng3ajm0ofuqe.replaceVars(value, vars));
+          dom.setStyle(elm, name, $_dlfh233cjnlpaxes.replaceVars(value, vars));
         });
         if (fmt.styles) {
           var styleVal = dom.getAttrib(elm, 'style');
@@ -76433,10 +77337,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           }
         }
         each$15(fmt.attributes, function (value, name) {
-          dom.setAttrib(elm, name, $_1mo0ng3ajm0ofuqe.replaceVars(value, vars));
+          dom.setAttrib(elm, name, $_dlfh233cjnlpaxes.replaceVars(value, vars));
         });
         each$15(fmt.classes, function (value) {
-          value = $_1mo0ng3ajm0ofuqe.replaceVars(value, vars);
+          value = $_dlfh233cjnlpaxes.replaceVars(value, vars);
           if (!dom.hasClass(elm, value)) {
             dom.addClass(elm, value);
           }
@@ -76466,7 +77370,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       wrapName = format.inline || format.block;
       wrapElm = dom.create(wrapName);
       setElementFormat(wrapElm);
-      $_5f1qhm3bjm0ofuqj.walk(dom, rng, function (nodes) {
+      $_6wozuu3djnlpaxew.walk(dom, rng, function (nodes) {
         var currentWrapElm;
         var process = function (node) {
           var nodeName, parentName, hasContentEditableState, lastContentEditable;
@@ -76478,18 +77382,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             contentEditable = dom.getContentEditable(node) === 'true';
             hasContentEditableState = true;
           }
-          if ($_1mo0ng3ajm0ofuqe.isEq(nodeName, 'br')) {
+          if ($_dlfh233cjnlpaxes.isEq(nodeName, 'br')) {
             currentWrapElm = 0;
             if (format.block) {
               dom.remove(node);
             }
             return;
           }
-          if (format.wrapper && $_8hq6av67jm0ofvco.matchNode(ed, node, name, vars)) {
+          if (format.wrapper && $_706y6v68jnlpay1a.matchNode(ed, node, name, vars)) {
             currentWrapElm = 0;
             return;
           }
-          if (contentEditable && !hasContentEditableState && format.block && !format.wrapper && $_1mo0ng3ajm0ofuqe.isTextBlock(ed, nodeName) && $_1mo0ng3ajm0ofuqe.isValid(ed, parentName, wrapName)) {
+          if (contentEditable && !hasContentEditableState && format.block && !format.wrapper && $_dlfh233cjnlpaxes.isTextBlock(ed, nodeName) && $_dlfh233cjnlpaxes.isValid(ed, parentName, wrapName)) {
             node = dom.rename(node, wrapName);
             setElementFormat(node);
             newWrappers.push(node);
@@ -76503,7 +77407,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
               return;
             }
           }
-          if (contentEditable && !hasContentEditableState && $_1mo0ng3ajm0ofuqe.isValid(ed, wrapName, nodeName) && $_1mo0ng3ajm0ofuqe.isValid(ed, parentName, wrapName) && !(!nodeSpecific && node.nodeType === 3 && node.nodeValue.length === 1 && node.nodeValue.charCodeAt(0) === 65279) && !isCaretNode(node) && (!format.inline || !dom.isBlock(node))) {
+          if (contentEditable && !hasContentEditableState && $_dlfh233cjnlpaxes.isValid(ed, wrapName, nodeName) && $_dlfh233cjnlpaxes.isValid(ed, parentName, wrapName) && !(!nodeSpecific && node.nodeType === 3 && node.nodeValue.length === 1 && node.nodeValue.charCodeAt(0) === 65279) && !isCaretNode(node) && (!format.inline || !dom.isBlock(node))) {
             if (!currentWrapElm) {
               currentWrapElm = dom.clone(wrapElm, false);
               node.parentNode.insertBefore(currentWrapElm, node);
@@ -76512,7 +77416,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             currentWrapElm.appendChild(node);
           } else {
             currentWrapElm = 0;
-            each$15($_cvczchljm0ofu3z.grep(node.childNodes), process);
+            each$15($_1q1txeljnlpawsa.grep(node.childNodes), process);
             if (hasContentEditableState) {
               contentEditable = lastContentEditable;
             }
@@ -76527,7 +77431,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             if (node.nodeName === 'A') {
               setElementFormat(node, format);
             }
-            each$15($_cvczchljm0ofu3z.grep(node.childNodes), process);
+            each$15($_1q1txeljnlpawsa.grep(node.childNodes), process);
           };
           process(node);
         });
@@ -76537,7 +77441,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         var getChildCount = function (node) {
           var count = 0;
           each$15(node.childNodes, function (node) {
-            if (!$_1mo0ng3ajm0ofuqe.isWhiteSpaceNode(node) && !$_5lihpr2vjm0ofumt.isBookmarkNode(node)) {
+            if (!$_dlfh233cjnlpaxes.isWhiteSpaceNode(node) && !$_43l8qj2xjnlpaxb1.isBookmarkNode(node)) {
               count++;
             }
           });
@@ -76556,7 +77460,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         var mergeStyles = function (node) {
           var child, clone;
           child = getChildElementNode(node);
-          if (child && !$_5lihpr2vjm0ofumt.isBookmarkNode(child) && $_8hq6av67jm0ofvco.matchName(dom, child, format)) {
+          if (child && !$_43l8qj2xjnlpaxb1.isBookmarkNode(child) && $_706y6v68jnlpay1a.matchName(dom, child, format)) {
             clone = dom.clone(child, false);
             setElementFormat(clone);
             dom.replace(clone, node, true);
@@ -76573,11 +77477,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           if (!format.exact && childCount === 1) {
             node = mergeStyles(node);
           }
-          $_6q77xb6ajm0ofvcy.mergeWithChildren(ed, formatList, vars, node);
-          $_6q77xb6ajm0ofvcy.mergeWithParents(ed, format, name, vars, node);
-          $_6q77xb6ajm0ofvcy.mergeBackgroundColorAndFontSize(dom, format, vars, node);
-          $_6q77xb6ajm0ofvcy.mergeSubSup(dom, format, vars, node);
-          $_6q77xb6ajm0ofvcy.mergeSiblings(dom, format, vars, node);
+          $_4luhzy6bjnlpay1j.mergeWithChildren(ed, formatList, vars, node);
+          $_4luhzy6bjnlpay1j.mergeWithParents(ed, format, name, vars, node);
+          $_4luhzy6bjnlpay1j.mergeBackgroundColorAndFontSize(dom, format, vars, node);
+          $_4luhzy6bjnlpay1j.mergeSubSup(dom, format, vars, node);
+          $_4luhzy6bjnlpay1j.mergeSiblings(dom, format, vars, node);
         }
       });
     };
@@ -76598,7 +77502,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             rng = dom.createRng();
             rng.setStartBefore(node);
             rng.setEndAfter(node);
-            applyRngStyle(dom, $_24nwrb2ujm0ofuml.expandRng(ed, rng, formatList), null, true);
+            applyRngStyle(dom, $_3cscnj2wjnlpaxau.expandRng(ed, rng, formatList), null, true);
           }
         } else {
           applyRngStyle(dom, node, null, true);
@@ -76609,32 +77513,32 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           if (!ed.settings.forced_root_block && formatList[0].defaultBlock && !dom.getParent(curSelNode, dom.isBlock)) {
             applyFormat(ed, formatList[0].defaultBlock);
           }
-          ed.selection.setRng($_a338xv3ojm0ofuts.normalize(ed.selection.getRng()));
-          bookmark = $_cmrtxr2jjm0ofukj.getPersistentBookmark(ed.selection, true);
-          applyRngStyle(dom, $_24nwrb2ujm0ofuml.expandRng(ed, selection.getRng(), formatList), bookmark);
+          ed.selection.setRng($_4fmn0j3qjnlpaxhi.normalize(ed.selection.getRng()));
+          bookmark = $_5l0mu32ljnlpax8x.getPersistentBookmark(ed.selection, true);
+          applyRngStyle(dom, $_3cscnj2wjnlpaxau.expandRng(ed, selection.getRng(), formatList), bookmark);
           if (format.styles) {
-            $_6q77xb6ajm0ofvcy.mergeUnderlineAndColor(dom, format, vars, curSelNode);
+            $_4luhzy6bjnlpay1j.mergeUnderlineAndColor(dom, format, vars, curSelNode);
           }
           selection.moveToBookmark(bookmark);
-          $_1mo0ng3ajm0ofuqe.moveStart(dom, selection, selection.getRng());
+          $_dlfh233cjnlpaxes.moveStart(dom, selection, selection.getRng());
           ed.nodeChanged();
         } else {
           applyCaretFormat(ed, name, vars);
         }
       }
-      $_8gdehl69jm0ofvcv.postProcess(name, ed);
+      $_48059m6ajnlpay1h.postProcess(name, ed);
     }
   };
-  var $_2mm7va65jm0ofvbn = { applyFormat: applyFormat };
+  var $_f4ruu466jnlpay08 = { applyFormat: applyFormat };
 
-  var each$16 = $_cvczchljm0ofu3z.each;
+  var each$16 = $_1q1txeljnlpawsa.each;
   var setup$5 = function (formatChangeData, editor) {
     var currentFormats = {};
     formatChangeData.set({});
     editor.on('NodeChange', function (e) {
-      var parents = $_1mo0ng3ajm0ofuqe.getParents(editor.dom, e.element);
+      var parents = $_dlfh233cjnlpaxes.getParents(editor.dom, e.element);
       var matchedFormats = {};
-      parents = $_cvczchljm0ofu3z.grep(parents, function (node) {
+      parents = $_1q1txeljnlpawsa.grep(parents, function (node) {
         return node.nodeType === 1 && !node.getAttribute('data-mce-bogus');
       });
       each$16(formatChangeData.get(), function (callbacks, format) {
@@ -76653,7 +77557,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             matchedFormats[format] = callbacks;
             return false;
           }
-          if ($_8hq6av67jm0ofvco.matchesUnInheritedFormatSelector(editor, node, format)) {
+          if ($_706y6v68jnlpay1a.matchesUnInheritedFormatSelector(editor, node, format)) {
             return false;
           }
         });
@@ -76689,9 +77593,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     addListeners(formatChangeState, formats, callback, similar);
   };
-  var $_4z46a26cjm0ofvdk = { formatChanged: formatChanged };
+  var $_10ddoa6djnlpay24 = { formatChanged: formatChanged };
 
-  var get$7 = function (dom) {
+  var get$8 = function (dom) {
     var formats = {
       valigntop: [{
           selector: 'td,th',
@@ -76889,7 +77793,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           return true;
         },
         onformat: function (elm, fmt, vars) {
-          $_cvczchljm0ofu3z.each(vars, function (value, key) {
+          $_1q1txeljnlpawsa.each(vars, function (value, key) {
             dom.setAttrib(elm, key, value);
           });
         }
@@ -76926,7 +77830,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       ]
     };
-    $_cvczchljm0ofu3z.each('p h1 h2 h3 h4 h5 h6 div address pre div dt dd samp'.split(/\s/), function (name) {
+    $_1q1txeljnlpawsa.each('p h1 h2 h3 h4 h5 h6 div address pre div dt dd samp'.split(/\s/), function (name) {
       formats[name] = {
         block: name,
         remove: 'all'
@@ -76934,7 +77838,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     return formats;
   };
-  var $_6er43f6ejm0ofve3 = { get: get$7 };
+  var $_2j3wlv6fjnlpay2d = { get: get$8 };
 
   function FormatRegistry (editor) {
     var formats = {};
@@ -76944,12 +77848,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var register = function (name, format) {
       if (name) {
         if (typeof name !== 'string') {
-          $_cvczchljm0ofu3z.each(name, function (format, name) {
+          $_1q1txeljnlpawsa.each(name, function (format, name) {
             register(name, format);
           });
         } else {
           format = format.length ? format : [format];
-          $_cvczchljm0ofu3z.each(format, function (format) {
+          $_1q1txeljnlpawsa.each(format, function (format) {
             if (typeof format.deep === 'undefined') {
               format.deep = !format.selector;
             }
@@ -76977,7 +77881,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
       return formats;
     };
-    register($_6er43f6ejm0ofve3.get(editor.dom));
+    register($_2j3wlv6fjnlpay2d.get(editor.dom));
     register(editor.settings.formats);
     return {
       get: get,
@@ -76986,7 +77890,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   }
 
-  var each$17 = $_cvczchljm0ofu3z.each;
+  var each$17 = $_1q1txeljnlpawsa.each;
   var dom = DOMUtils$1.DOM;
   var parsedSelectorToHtml = function (ancestry, editor) {
     var elm, item, fragment;
@@ -77013,7 +77917,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var elmRule = schema.getElementRule(name);
       var parentsRequired = elmRule && elmRule.parentsRequired;
       if (parentsRequired && parentsRequired.length) {
-        return candidate && $_cvczchljm0ofu3z.inArray(parentsRequired, candidate) !== -1 ? candidate : parentsRequired[0];
+        return candidate && $_1q1txeljnlpawsa.inArray(parentsRequired, candidate) !== -1 ? candidate : parentsRequired[0];
       } else {
         return false;
       }
@@ -77045,7 +77949,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           parent = dom.create('div');
           parent.appendChild(elm);
         }
-        $_cvczchljm0ofu3z.each(siblings, function (sibling) {
+        $_1q1txeljnlpawsa.each(siblings, function (sibling) {
           var siblingElm = createElement(sibling);
           parent.insertBefore(siblingElm, elm);
         });
@@ -77071,7 +77975,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       classes: [],
       attrs: {}
     };
-    item = obj.selector = $_cvczchljm0ofu3z.trim(item);
+    item = obj.selector = $_1q1txeljnlpawsa.trim(item);
     if (item !== '*') {
       tagName = item.replace(/(?:([#\.]|::?)([\w\-]+)|(\[)([^\]]+)\]?)/g, function ($0, $1, $2, $3, $4) {
         switch ($1) {
@@ -77082,7 +77986,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           obj.classes.push($2);
           break;
         case ':':
-          if ($_cvczchljm0ofu3z.inArray('checked disabled enabled read-only required'.split(' '), $2) !== -1) {
+          if ($_1q1txeljnlpawsa.inArray('checked disabled enabled read-only required'.split(' '), $2) !== -1) {
             obj.attrs[$2] = $2;
           }
           break;
@@ -77105,8 +78009,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     selector = selector.split(/\s*,\s*/)[0];
     selector = selector.replace(/\s*(~\+|~|\+|>)\s*/g, '$1');
-    return $_cvczchljm0ofu3z.map(selector.split(/(?:>|\s+(?![^\[\]]+\]))/), function (item) {
-      var siblings = $_cvczchljm0ofu3z.map(item.split(/(?:~\+|~|\+)/), parseSelectorItem);
+    return $_1q1txeljnlpawsa.map(selector.split(/(?:>|\s+(?![^\[\]]+\]))/), function (item) {
+      var siblings = $_1q1txeljnlpawsa.map(item.split(/(?:~\+|~|\+)/), parseSelectorItem);
       var obj = siblings.pop();
       if (siblings.length) {
         obj.siblings = siblings;
@@ -77209,7 +78113,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     dom.remove(previewFrag);
     return previewCss;
   };
-  var $_df7gmf6fjm0ofve9 = {
+  var $_6yt3d06gjnlpay2j = {
     getCssText: getCssText,
     parseSelector: parseSelector,
     selectorToHtml: selectorToHtml
@@ -77217,13 +78121,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var toggle$3 = function (editor, formats, name, vars, node) {
     var fmt = formats.get(name);
-    if ($_8hq6av67jm0ofvco.match(editor, name, vars, node) && (!('toggle' in fmt[0]) || fmt[0].toggle)) {
-      $_1f89kc6bjm0ofvd9.remove(editor, name, vars, node);
+    if ($_706y6v68jnlpay1a.match(editor, name, vars, node) && (!('toggle' in fmt[0]) || fmt[0].toggle)) {
+      $_4dimpr6cjnlpay1t.remove(editor, name, vars, node);
     } else {
-      $_2mm7va65jm0ofvbn.applyFormat(editor, name, vars, node);
+      $_f4ruu466jnlpay08.applyFormat(editor, name, vars, node);
     }
   };
-  var $_5usuym6gjm0ofveg = { toggle: toggle$3 };
+  var $_div70r6hjnlpay2r = { toggle: toggle$3 };
 
   var setup$6 = function (editor) {
     editor.addShortcut('meta+b', '', 'Bold');
@@ -77252,30 +78156,30 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       'address'
     ]);
   };
-  var $_2pug76hjm0ofveh = { setup: setup$6 };
+  var $_azkj2d6ijnlpay2t = { setup: setup$6 };
 
   function Formatter (editor) {
     var formats = FormatRegistry(editor);
     var formatChangeState = Cell(null);
-    $_2pug76hjm0ofveh.setup(editor);
+    $_azkj2d6ijnlpay2t.setup(editor);
     setup$4(editor);
     return {
       get: formats.get,
       register: formats.register,
       unregister: formats.unregister,
-      apply: curry($_2mm7va65jm0ofvbn.applyFormat, editor),
-      remove: curry($_1f89kc6bjm0ofvd9.remove, editor),
-      toggle: curry($_5usuym6gjm0ofveg.toggle, editor, formats),
-      match: curry($_8hq6av67jm0ofvco.match, editor),
-      matchAll: curry($_8hq6av67jm0ofvco.matchAll, editor),
-      matchNode: curry($_8hq6av67jm0ofvco.matchNode, editor),
-      canApply: curry($_8hq6av67jm0ofvco.canApply, editor),
-      formatChanged: curry($_4z46a26cjm0ofvdk.formatChanged, editor, formatChangeState),
-      getCssText: curry($_df7gmf6fjm0ofve9.getCssText, editor)
+      apply: curry($_f4ruu466jnlpay08.applyFormat, editor),
+      remove: curry($_4dimpr6cjnlpay1t.remove, editor),
+      toggle: curry($_div70r6hjnlpay2r.toggle, editor, formats),
+      match: curry($_706y6v68jnlpay1a.match, editor),
+      matchAll: curry($_706y6v68jnlpay1a.matchAll, editor),
+      matchNode: curry($_706y6v68jnlpay1a.matchNode, editor),
+      canApply: curry($_706y6v68jnlpay1a.canApply, editor),
+      formatChanged: curry($_10ddoa6djnlpay24.formatChanged, editor, formatChangeState),
+      getCssText: curry($_6yt3d06gjnlpay2j.getCssText, editor)
     };
   }
 
-  var hasOwnProperty$1 = Object.prototype.hasOwnProperty;
+  var hasOwnProperty$2 = Object.prototype.hasOwnProperty;
   var shallow$1 = function (old, nu) {
     return nu;
   };
@@ -77290,7 +78194,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       for (var j = 0; j < objects.length; j++) {
         var curObject = objects[j];
         for (var key in curObject)
-          if (hasOwnProperty$1.call(curObject, key)) {
+          if (hasOwnProperty$2.call(curObject, key)) {
             ret[key] = merger(ret[key], curObject[key]);
           }
       }
@@ -77356,7 +78260,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       while (i--) {
         node = nodes[i].firstChild;
         if (node) {
-          node.value = $_7ruegc1sjm0ofuek.decode(node.value);
+          node.value = $_bea7j51sjnlpax2u.decode(node.value);
         }
       }
     });
@@ -77444,7 +78348,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
   };
-  var $_5nu9996ljm0ofvev = {
+  var $_bpervq6mjnlpay3i = {
     register: register,
     trimTrailingBr: trimTrailingBr
   };
@@ -77456,7 +78360,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     impl = document.implementation;
     if (impl.createHTMLDocument) {
       doc = impl.createHTMLDocument('');
-      $_cvczchljm0ofu3z.each(node.nodeName === 'BODY' ? node.childNodes : [node], function (node) {
+      $_1q1txeljnlpawsa.each(node.nodeName === 'BODY' ? node.childNodes : [node], function (node) {
         doc.body.appendChild(doc.importNode(node, true));
       });
       if (node.nodeName !== 'BODY') {
@@ -77467,7 +78371,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       oldDoc = dom.doc;
       dom.doc = doc;
     }
-    $_bs96es4tjm0ofv3j.firePreProcess(editor, merge(args, { node: node }));
+    $_5atig84wjnlpaxs7.firePreProcess(editor, merge(args, { node: node }));
     if (oldDoc) {
       dom.doc = oldDoc;
     }
@@ -77479,7 +78383,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var process = function (editor, node, args) {
     return shouldFireEvent(editor, args) ? preProcess(editor, node, args) : node;
   };
-  var $_6coqqq6mjm0ofvf7 = { process: process };
+  var $_5tjdgs6njnlpay3r = { process: process };
 
   var removeAttrs = function (node, names) {
     each(names, function (name) {
@@ -77525,7 +78429,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var addFilters = function (domParser, settings) {
     var styles = Styles();
     if (settings.convert_fonts_to_spans) {
-      addFontToSpansFilter(domParser, styles, $_cvczchljm0ofu3z.explode(settings.font_size_legacy_values));
+      addFontToSpansFilter(domParser, styles, $_1q1txeljnlpawsa.explode(settings.font_size_legacy_values));
     }
     addStrikeToSpanFilter(domParser, styles);
   };
@@ -77534,7 +78438,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       addFilters(domParser, settings);
     }
   };
-  var $_b2vywu6ojm0ofvfv = { register: register$1 };
+  var $_2wvuyy6pjnlpay4e = { register: register$1 };
 
   var whiteSpaceRegExp$3 = /^[ \t\r\n]*$/;
   var typeLookup = {
@@ -77850,7 +78754,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         var i;
         var l = nodes.length;
         var node;
-        var blockElements = $_cvczchljm0ofu3z.extend({}, schema.getBlockElements());
+        var blockElements = $_1q1txeljnlpawsa.extend({}, schema.getBlockElements());
         var nonEmptyElements = schema.getNonEmptyElements();
         var parent, lastParent, prev, prevName;
         var whiteSpaceElements = schema.getNonEmptyElements();
@@ -77914,7 +78818,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         return parts.concat(['noopener']).sort().join(' ');
       };
       var addNoOpener = function (rel) {
-        var newRel = rel ? $_cvczchljm0ofu3z.trim(rel) : '';
+        var newRel = rel ? $_1q1txeljnlpawsa.trim(rel) : '';
         if (!/\b(noopener)\b/g.test(newRel)) {
           return appendRel(newRel);
         } else {
@@ -78001,10 +78905,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
 
-  var makeMap$4 = $_cvczchljm0ofu3z.makeMap;
-  var each$18 = $_cvczchljm0ofu3z.each;
-  var explode$3 = $_cvczchljm0ofu3z.explode;
-  var extend$3 = $_cvczchljm0ofu3z.extend;
+  var makeMap$4 = $_1q1txeljnlpawsa.makeMap;
+  var each$18 = $_1q1txeljnlpawsa.each;
+  var explode$3 = $_1q1txeljnlpawsa.explode;
+  var extend$3 = $_1q1txeljnlpawsa.extend;
   function DomParser (settings, schema) {
     if (schema === void 0) {
       schema = Schema();
@@ -78465,12 +79369,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       parse: parse
     };
     register$2(exports, settings);
-    $_b2vywu6ojm0ofvfv.register(exports, settings);
+    $_2wvuyy6pjnlpay4e.register(exports, settings);
     return exports;
   }
 
   var addTempAttr = function (htmlParser, tempAttrs, name) {
-    if ($_cvczchljm0ofu3z.inArray(tempAttrs, name) === -1) {
+    if ($_1q1txeljnlpawsa.inArray(tempAttrs, name) === -1) {
       htmlParser.addAttributeFilter(name, function (nodes, name) {
         var i = nodes.length;
         while (i--) {
@@ -78482,20 +79386,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var postProcess$1 = function (editor, args, content) {
     if (!args.no_events && editor) {
-      var outArgs = $_bs96es4tjm0ofv3j.firePostProcess(editor, merge(args, { content: content }));
+      var outArgs = $_5atig84wjnlpaxs7.firePostProcess(editor, merge(args, { content: content }));
       return outArgs.content;
     } else {
       return content;
     }
   };
   var getHtmlFromNode = function (dom, node, args) {
-    var html = $_2bohar2pjm0ofulx.trim(args.getInner ? node.innerHTML : dom.getOuterHTML(node));
-    return args.selection || isWsPreserveElement(Element$$1.fromDom(node)) ? html : $_cvczchljm0ofu3z.trim(html);
+    var html = $_90hfb72rjnlpaxae.trim(args.getInner ? node.innerHTML : dom.getOuterHTML(node));
+    return args.selection || isWsPreserveElement(Element$$1.fromDom(node)) ? html : $_1q1txeljnlpawsa.trim(html);
   };
   var parseHtml = function (htmlParser, html, args) {
     var parserArgs = args.selection ? merge({ forced_root_block: false }, args) : args;
     var rootNode = htmlParser.parse(html, parserArgs);
-    $_5nu9996ljm0ofvev.trimTrailingBr(rootNode);
+    $_bpervq6mjnlpay3i.trimTrailingBr(rootNode);
     return rootNode;
   };
   var serializeNode = function (settings, schema, node) {
@@ -78514,10 +79418,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     settings.entity_encoding = settings.entity_encoding || 'named';
     settings.remove_trailing_brs = 'remove_trailing_brs' in settings ? settings.remove_trailing_brs : true;
     htmlParser = DomParser(settings, schema);
-    $_5nu9996ljm0ofvev.register(htmlParser, settings, dom);
+    $_bpervq6mjnlpay3i.register(htmlParser, settings, dom);
     var serialize = function (node, parserArgs) {
       var args = merge({ format: 'html' }, parserArgs ? parserArgs : {});
-      var targetNode = $_6coqqq6mjm0ofvf7.process(editor, node, args);
+      var targetNode = $_5tjdgs6njnlpay3r.process(editor, node, args);
       var html = getHtmlFromNode(dom, targetNode, args);
       var rootNode = parseHtml(htmlParser, html, args);
       return args.format === 'tree' ? rootNode : toHtml(editor, settings, schema, rootNode, args);
@@ -78556,17 +79460,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   function BookmarkManager(selection) {
     return {
-      getBookmark: curry($_5lihpr2vjm0ofumt.getBookmark, selection),
-      moveToBookmark: curry($_5lihpr2vjm0ofumt.moveToBookmark, selection)
+      getBookmark: curry($_43l8qj2xjnlpaxb1.getBookmark, selection),
+      moveToBookmark: curry($_43l8qj2xjnlpaxb1.moveToBookmark, selection)
     };
   }
   (function (BookmarkManager) {
-    BookmarkManager.isBookmarkNode = $_5lihpr2vjm0ofumt.isBookmarkNode;
+    BookmarkManager.isBookmarkNode = $_43l8qj2xjnlpaxb1.isBookmarkNode;
   }(BookmarkManager || (BookmarkManager = {})));
   var BookmarkManager$1 = BookmarkManager;
 
-  var isContentEditableFalse$10 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
-  var isContentEditableTrue$6 = $_2oph0b1rjm0ofuee.isContentEditableTrue;
+  var isContentEditableFalse$10 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
+  var isContentEditableTrue$6 = $_fy28ei1rjnlpax2o.isContentEditableTrue;
   var getContentEditableRoot$2 = function (root, node) {
     while (node && node !== root) {
       if (isContentEditableTrue$6(node) || isContentEditableFalse$10(node)) {
@@ -78577,7 +79481,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return null;
   };
   var ControlSelection = function (selection, editor) {
-    var dom = editor.dom, each = $_cvczchljm0ofu3z.each;
+    var dom = editor.dom, each = $_1q1txeljnlpawsa.each;
     var selectedElm, selectedElmGhost, resizeHelper, resizeHandles, selectedHandle;
     var startX, startY, selectedElmX, selectedElmY, startW, startH, ratio, resizeStarted;
     var width, height;
@@ -78611,12 +79515,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       ]
     };
     var rootClass = '.mce-content-body';
-    editor.contentStyles.push(rootClass + ' div.mce-resizehandle {' + 'position: absolute;' + 'border: 1px solid black;' + 'box-sizing: content-box;' + 'background: #FFF;' + 'width: 7px;' + 'height: 7px;' + 'z-index: 10000' + '}' + rootClass + ' .mce-resizehandle:hover {' + 'background: #000' + '}' + rootClass + ' img[data-mce-selected],' + rootClass + ' hr[data-mce-selected] {' + 'outline: 1px solid black;' + 'resize: none' + '}' + rootClass + ' .mce-clonedresizable {' + 'position: absolute;' + ($_emqeydajm0oftwm.gecko ? '' : 'outline: 1px dashed black;') + 'opacity: .5;' + 'filter: alpha(opacity=50);' + 'z-index: 10000' + '}' + rootClass + ' .mce-resize-helper {' + 'background: #555;' + 'background: rgba(0,0,0,0.75);' + 'border-radius: 3px;' + 'border: 1px;' + 'color: white;' + 'display: none;' + 'font-family: sans-serif;' + 'font-size: 12px;' + 'white-space: nowrap;' + 'line-height: 14px;' + 'margin: 5px 10px;' + 'padding: 5px;' + 'position: absolute;' + 'z-index: 10001' + '}');
+    editor.contentStyles.push(rootClass + ' div.mce-resizehandle {' + 'position: absolute;' + 'border: 1px solid black;' + 'box-sizing: content-box;' + 'background: #FFF;' + 'width: 7px;' + 'height: 7px;' + 'z-index: 10000' + '}' + rootClass + ' .mce-resizehandle:hover {' + 'background: #000' + '}' + rootClass + ' img[data-mce-selected],' + rootClass + ' hr[data-mce-selected] {' + 'outline: 1px solid black;' + 'resize: none' + '}' + rootClass + ' .mce-clonedresizable {' + 'position: absolute;' + ($_cseqobajnlpawll.gecko ? '' : 'outline: 1px dashed black;') + 'opacity: .5;' + 'filter: alpha(opacity=50);' + 'z-index: 10000' + '}' + rootClass + ' .mce-resize-helper {' + 'background: #555;' + 'background: rgba(0,0,0,0.75);' + 'border-radius: 3px;' + 'border: 1px;' + 'color: white;' + 'display: none;' + 'font-family: sans-serif;' + 'font-size: 12px;' + 'white-space: nowrap;' + 'line-height: 14px;' + 'margin: 5px 10px;' + 'padding: 5px;' + 'position: absolute;' + 'z-index: 10001' + '}');
     var isImage = function (elm) {
       return elm && (elm.nodeName === 'IMG' || editor.dom.is(elm, 'figure.image'));
     };
     var isEventOnImageOutsideRange = function (evt, range) {
-      return isImage(evt.target) && !$_fss4pl5tjm0ofva0.isXYWithinRange(evt.clientX, evt.clientY, range);
+      return isImage(evt.target) && !$_5xpdav5wjnlpaxyf.isXYWithinRange(evt.clientX, evt.clientY, range);
     };
     var contextMenuSelectImage = function (evt) {
       var target = evt.target;
@@ -78630,7 +79534,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var isResizable = function (elm) {
       var selector = editor.settings.object_resizing;
-      if (selector === false || $_emqeydajm0oftwm.iOS) {
+      if (selector === false || $_cseqobajnlpawll.iOS) {
         return false;
       }
       if (typeof selector !== 'string') {
@@ -78642,7 +79546,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (elm === editor.getBody()) {
         return false;
       }
-      return $_bdu7ul1gjm0ofucn.is(Element$$1.fromDom(elm), selector);
+      return $_d8v5lf1gjnlpax0y.is(Element$$1.fromDom(elm), selector);
     };
     var resizeGhostElement = function (e) {
       var deltaX, deltaY, proportional;
@@ -78654,9 +79558,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       width = width < 5 ? 5 : width;
       height = height < 5 ? 5 : height;
       if (isImage(selectedElm) && editor.settings.resize_img_proportional !== false) {
-        proportional = !$_epe5n05vjm0ofva5.modifierPressed(e);
+        proportional = !$_1qv0695yjnlpaxyk.modifierPressed(e);
       } else {
-        proportional = $_epe5n05vjm0ofva5.modifierPressed(e) || isImage(selectedElm) && selectedHandle[2] * selectedHandle[3] !== 0;
+        proportional = $_1qv0695yjnlpaxyk.modifierPressed(e) || isImage(selectedElm) && selectedHandle[2] * selectedHandle[3] !== 0;
       }
       if (proportional) {
         if (abs(deltaX) > abs(deltaY)) {
@@ -78696,7 +79600,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         });
       }
       if (!resizeStarted) {
-        $_bs96es4tjm0ofv3j.fireObjectResizeStart(editor, selectedElm, startW, startH);
+        $_5atig84wjnlpaxs7.fireObjectResizeStart(editor, selectedElm, startW, startH);
         resizeStarted = true;
       }
     };
@@ -78722,7 +79626,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       dom.remove(selectedElmGhost);
       dom.remove(resizeHelper);
       showResizeRect(selectedElm);
-      $_bs96es4tjm0ofv3j.fireObjectResized(editor, selectedElm, width, height);
+      $_5atig84wjnlpaxs7.fireObjectResized(editor, selectedElm, width, height);
       dom.setAttrib(selectedElm, 'style', dom.getAttrib(selectedElm, 'style'));
       editor.nodeChanged();
     };
@@ -78791,7 +79695,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
             'unselectable': true,
             'style': 'cursor:' + name$$1 + '-resize; margin:0; padding:0'
           });
-          if ($_emqeydajm0oftwm.ie === 11) {
+          if ($_cseqobajnlpawll.ie === 11) {
             handleElm.contentEditable = false;
           }
           dom.bind(handleElm, 'mousedown', function (e) {
@@ -78873,7 +79777,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     editor.on('init', function () {
       disableGeckoResize();
-      if ($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie >= 11) {
+      if ($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie >= 11) {
         editor.on('mousedown click', function (e) {
           var target = e.target, nodeName = target.nodeName;
           if (!resizeStarted && /^(TABLE|IMG|HR)$/.test(nodeName) && !isWithinContentEditableFalse(target)) {
@@ -78887,7 +79791,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         });
         editor.dom.bind(rootElement, 'mscontrolselect', function (e) {
           var delayedSelect = function (node) {
-            $_4oxubkijm0ofu12.setEditorTimeout(editor, function () {
+            $_2nbnh1ijnlpawpi.setEditorTimeout(editor, function () {
               editor.selection.select(node);
             });
           };
@@ -78904,7 +79808,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           }
         });
       }
-      var throttledUpdateResizeRect = $_4oxubkijm0ofu12.throttle(function (e) {
+      var throttledUpdateResizeRect = $_2nbnh1ijnlpawpi.throttle(function (e) {
         if (!editor.composing) {
           updateResizeRect(e);
         }
@@ -78932,7 +79836,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var hasCeProperty = function (node) {
-    return $_2oph0b1rjm0ofuee.isContentEditableTrue(node) || $_2oph0b1rjm0ofuee.isContentEditableFalse(node);
+    return $_fy28ei1rjnlpax2o.isContentEditableTrue(node) || $_fy28ei1rjnlpax2o.isContentEditableFalse(node);
   };
   var findParent$1 = function (node, rootNode, predicate) {
     while (node && node !== rootNode) {
@@ -78951,7 +79855,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       element = doc.body;
     }
     rng.moveToElementText(element);
-    rects = $_cvczchljm0ofu3z.toArray(rng.getClientRects());
+    rects = $_1q1txeljnlpawsa.toArray(rng.getClientRects());
     rects = rects.sort(function (a, b) {
       a = Math.abs(Math.max(a.top - clientY, a.bottom - clientY));
       b = Math.abs(Math.max(b.top - clientY, b.bottom - clientY));
@@ -78970,7 +79874,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var moveOutOfContentEditableFalse = function (rng, rootNode) {
     var parentElement = rng && rng.parentElement ? rng.parentElement() : null;
-    return $_2oph0b1rjm0ofuee.isContentEditableFalse(findParent$1(parentElement, rootNode, hasCeProperty)) ? null : rng;
+    return $_fy28ei1rjnlpax2o.isContentEditableFalse(findParent$1(parentElement, rootNode, hasCeProperty)) ? null : rng;
   };
   var fromPoint$1 = function (clientX, clientY, doc) {
     var rng, point;
@@ -78996,7 +79900,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return rng;
   };
-  var $_evwow6vjm0ofvm5 = { fromPoint: fromPoint$1 };
+  var $_445zg66wjnlpay63 = { fromPoint: fromPoint$1 };
 
   var processRanges = function (editor, ranges) {
     return map(ranges, function (range$$1) {
@@ -79004,7 +79908,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return evt.range !== range$$1 ? evt.range : range$$1;
     });
   };
-  var $_dmr2bd6wjm0ofvm8 = { processRanges: processRanges };
+  var $_76ma076xjnlpay65 = { processRanges: processRanges };
 
   var fromElements = function (elements, scope) {
     var doc = scope || document;
@@ -79014,13 +79918,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     return Element$$1.fromDom(fragment);
   };
-  var $_168ret6zjm0ofvmu = { fromElements: fromElements };
+  var $_8n4csb70jnlpay6p = { fromElements: fromElements };
 
   var tableModel = Immutable('element', 'width', 'rows');
   var tableRow = Immutable('element', 'cells');
   var cellPosition = Immutable('x', 'y');
   var getSpan = function (td, key) {
-    var value = parseInt($_cgh0m015jm0ofuao.get(td, key), 10);
+    var value = parseInt($_521j8z15jnlpawz7.get(td, key), 10);
     return isNaN(value) ? 1 : value;
   };
   var fillout = function (table, x, y, tr, td) {
@@ -79029,11 +79933,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var rows = table.rows();
     for (var y2 = y; y2 < y + rowspan; y2++) {
       if (!rows[y2]) {
-        rows[y2] = tableRow($_ep8ir62ijm0ofukf.deep(tr), []);
+        rows[y2] = tableRow($_5sdpl92ijnlpax8h.deep(tr), []);
       }
       for (var x2 = x; x2 < x + colspan; x2++) {
         var cells = rows[y2].cells();
-        cells[x2] = y2 === y && x2 === x ? td : $_ep8ir62ijm0ofukf.shallow(td);
+        cells[x2] = y2 === y && x2 === x ? td : $_5sdpl92ijnlpax8h.shallow(td);
       }
     }
   };
@@ -79058,7 +79962,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     for (var y = 0; y < rows.length; y++) {
       var cells = rows[y].cells();
       for (var x = 0; x < cells.length; x++) {
-        if ($_ag822a1ejm0ofuc8.eq(cells[x], element)) {
+        if ($_5h7cor1ejnlpax0k.eq(cells[x], element)) {
           return Option.some(cellPosition(x, y));
         }
       }
@@ -79082,29 +79986,29 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return tableModel(table.element(), getWidth(newRows), newRows);
   };
   var createDomTable = function (table, rows) {
-    var tableElement = $_ep8ir62ijm0ofukf.shallow(table.element());
+    var tableElement = $_5sdpl92ijnlpax8h.shallow(table.element());
     var tableBody = Element$$1.fromTag('tbody');
-    $_43bojf1xjm0ofugp.append(tableBody, rows);
-    $_8gbbpa1yjm0ofugu.append(tableElement, tableBody);
+    $_9vd3j51xjnlpax4s.append(tableBody, rows);
+    $_ag89ax1yjnlpax4x.append(tableElement, tableBody);
     return tableElement;
   };
   var modelRowsToDomRows = function (table) {
     return map(table.rows(), function (row) {
       var cells = map(row.cells(), function (cell) {
-        var td = $_ep8ir62ijm0ofukf.deep(cell);
-        $_cgh0m015jm0ofuao.remove(td, 'colspan');
-        $_cgh0m015jm0ofuao.remove(td, 'rowspan');
+        var td = $_5sdpl92ijnlpax8h.deep(cell);
+        $_521j8z15jnlpawz7.remove(td, 'colspan');
+        $_521j8z15jnlpawz7.remove(td, 'rowspan');
         return td;
       });
-      var tr = $_ep8ir62ijm0ofukf.shallow(row.element());
-      $_43bojf1xjm0ofugp.append(tr, cells);
+      var tr = $_5sdpl92ijnlpax8h.shallow(row.element());
+      $_9vd3j51xjnlpax4s.append(tr, cells);
       return tr;
     });
   };
   var fromDom$2 = function (tableElm) {
-    var table = tableModel($_ep8ir62ijm0ofukf.shallow(tableElm), 0, []);
-    each($_29u9y827jm0ofuid.descendants(tableElm, 'tr'), function (tr, y) {
-      each($_29u9y827jm0ofuid.descendants(tr, 'td,th'), function (td, x) {
+    var table = tableModel($_5sdpl92ijnlpax8h.shallow(tableElm), 0, []);
+    each($_cmitir27jnlpax6e.descendants(tableElm, 'tr'), function (tr, y) {
+      each($_cmitir27jnlpax6e.descendants(tr, 'td,th'), function (td, x) {
         fillout(table, skipCellsX(table, x, y), y, tr, td);
       });
     });
@@ -79120,7 +80024,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     });
   };
-  var $_djoi0u70jm0ofvn5 = {
+  var $_7mbdap71jnlpay6v = {
     fromDom: fromDom$2,
     toDom: toDom,
     subsection: subsection
@@ -79128,31 +80032,31 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var findParentListContainer = function (parents) {
     return find(parents, function (elm) {
-      return $_byto2911jm0ofu9v.name(elm) === 'ul' || $_byto2911jm0ofu9v.name(elm) === 'ol';
+      return $_7u5fzs11jnlpawv6.name(elm) === 'ul' || $_7u5fzs11jnlpawv6.name(elm) === 'ol';
     });
   };
   var getFullySelectedListWrappers = function (parents, rng) {
     return find(parents, function (elm) {
-      return $_byto2911jm0ofu9v.name(elm) === 'li' && hasAllContentsSelected(elm, rng);
+      return $_7u5fzs11jnlpawv6.name(elm) === 'li' && hasAllContentsSelected(elm, rng);
     }).fold(constant([]), function (li) {
       return findParentListContainer(parents).map(function (listCont) {
         return [
           Element$$1.fromTag('li'),
-          Element$$1.fromTag($_byto2911jm0ofu9v.name(listCont))
+          Element$$1.fromTag($_7u5fzs11jnlpawv6.name(listCont))
         ];
       }).getOr([]);
     });
   };
   var wrap$3 = function (innerElm, elms) {
     var wrapped = foldl(elms, function (acc, elm) {
-      $_8gbbpa1yjm0ofugu.append(elm, acc);
+      $_ag89ax1yjnlpax4x.append(elm, acc);
       return elm;
     }, innerElm);
-    return elms.length > 0 ? $_168ret6zjm0ofvmu.fromElements([wrapped]) : wrapped;
+    return elms.length > 0 ? $_8n4csb70jnlpay6p.fromElements([wrapped]) : wrapped;
   };
   var directListWrappers = function (commonAnchorContainer) {
     if (isListItem(commonAnchorContainer)) {
-      return $_8mvo7w18jm0ofub9.parent(commonAnchorContainer).filter(isList).fold(constant([]), function (listElm) {
+      return $_dr4ybh18jnlpawzt.parent(commonAnchorContainer).filter(isList).fold(constant([]), function (listElm) {
         return [
           commonAnchorContainer,
           listElm
@@ -79164,30 +80068,30 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getWrapElements = function (rootNode, rng) {
     var commonAnchorContainer = Element$$1.fromDom(rng.commonAncestorContainer);
-    var parents = $_2rilno3zjm0ofuw7.parentsAndSelf(commonAnchorContainer, rootNode);
+    var parents = $_4b88sj42jnlpaxkd.parentsAndSelf(commonAnchorContainer, rootNode);
     var wrapElements = filter(parents, function (elm) {
       return isInline(elm) || isHeading(elm);
     });
     var listWrappers = getFullySelectedListWrappers(parents, rng);
     var allWrappers = wrapElements.concat(listWrappers.length ? listWrappers : directListWrappers(commonAnchorContainer));
-    return map(allWrappers, $_ep8ir62ijm0ofukf.shallow);
+    return map(allWrappers, $_5sdpl92ijnlpax8h.shallow);
   };
   var emptyFragment = function () {
-    return $_168ret6zjm0ofvmu.fromElements([]);
+    return $_8n4csb70jnlpay6p.fromElements([]);
   };
   var getFragmentFromRange = function (rootNode, rng) {
     return wrap$3(Element$$1.fromDom(rng.cloneContents()), getWrapElements(rootNode, rng));
   };
   var getParentTable = function (rootElm, cell) {
-    return $_6nhfso29jm0ofuij.ancestor(cell, 'table', curry($_ag822a1ejm0ofuc8.eq, rootElm));
+    return $_2kbu29jnlpax6t.ancestor(cell, 'table', curry($_5h7cor1ejnlpax0k.eq, rootElm));
   };
   var getTableFragment = function (rootNode, selectedTableCells) {
     return getParentTable(rootNode, selectedTableCells[0]).bind(function (tableElm) {
       var firstCell = selectedTableCells[0];
       var lastCell = selectedTableCells[selectedTableCells.length - 1];
-      var fullTableModel = $_djoi0u70jm0ofvn5.fromDom(tableElm);
-      return $_djoi0u70jm0ofvn5.subsection(fullTableModel, firstCell, lastCell).map(function (sectionedTableModel) {
-        return $_168ret6zjm0ofvmu.fromElements([$_djoi0u70jm0ofvn5.toDom(sectionedTableModel)]);
+      var fullTableModel = $_7mbdap71jnlpay6v.fromDom(tableElm);
+      return $_7mbdap71jnlpay6v.subsection(fullTableModel, firstCell, lastCell).map(function (sectionedTableModel) {
+        return $_8n4csb70jnlpay6p.fromElements([$_7mbdap71jnlpay6v.toDom(sectionedTableModel)]);
       });
     }).getOrThunk(emptyFragment);
   };
@@ -79195,16 +80099,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return ranges.length > 0 && ranges[0].collapsed ? emptyFragment() : getFragmentFromRange(rootNode, ranges[0]);
   };
   var read$4 = function (rootNode, ranges) {
-    var selectedCells = $_5fevs04ejm0ofv06.getCellsFromElementOrRanges(ranges, rootNode);
+    var selectedCells = $_1yq8wz4hjnlpaxo7.getCellsFromElementOrRanges(ranges, rootNode);
     return selectedCells.length > 0 ? getTableFragment(rootNode, selectedCells) : getSelectionFragment(rootNode, ranges);
   };
-  var $_1lyb9a6yjm0ofvme = { read: read$4 };
+  var $_7ki6146zjnlpay6b = { read: read$4 };
 
   var getContent = function (editor, args) {
     var rng = editor.selection.getRng(), tmpElm = editor.dom.create('body');
     var sel = editor.selection.getSel();
     var fragment;
-    var ranges = $_dmr2bd6wjm0ofvm8.processRanges(editor, $_9u5d8n4fjm0ofv0b.getRanges(sel));
+    var ranges = $_76ma076xjnlpay65.processRanges(editor, $_533sn84ijnlpaxoe.getRanges(sel));
     args = args || {};
     args.get = true;
     args.format = args.format || 'html';
@@ -79215,10 +80119,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return args.content;
     }
     if (args.format === 'text') {
-      return editor.selection.isCollapsed() ? '' : $_2bohar2pjm0ofulx.trim(rng.text || (sel.toString ? sel.toString() : ''));
+      return editor.selection.isCollapsed() ? '' : $_90hfb72rjnlpaxae.trim(rng.text || (sel.toString ? sel.toString() : ''));
     }
     if (rng.cloneContents) {
-      fragment = args.contextual ? $_1lyb9a6yjm0ofvme.read(Element$$1.fromDom(editor.getBody()), ranges).dom() : rng.cloneContents();
+      fragment = args.contextual ? $_7ki6146zjnlpay6b.read(Element$$1.fromDom(editor.getBody()), ranges).dom() : rng.cloneContents();
       if (fragment) {
         tmpElm.appendChild(fragment);
       }
@@ -79237,7 +80141,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editor.fire('GetContent', args);
     return args.content;
   };
-  var $_a5q8n26xjm0ofvmb = { getContent: getContent };
+  var $_d9gs4y6yjnlpay67 = { getContent: getContent };
 
   var setContent = function (editor, content, args) {
     var rng = editor.selection.getRng(), caretNode;
@@ -79301,22 +80205,22 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       editor.fire('SetContent', args);
     }
   };
-  var $_bbg97u71jm0ofvnm = { setContent: setContent };
+  var $_b3j7u072jnlpaybw = { setContent: setContent };
 
   var getEndpointElement = function (root, rng, start, real, resolve) {
     var container = start ? rng.startContainer : rng.endContainer;
     var offset = start ? rng.startOffset : rng.endOffset;
     return Option.from(container).map(Element$$1.fromDom).map(function (elm) {
-      return !real || !rng.collapsed ? $_8mvo7w18jm0ofub9.child(elm, resolve(elm, offset)).getOr(elm) : elm;
+      return !real || !rng.collapsed ? $_dr4ybh18jnlpawzt.child(elm, resolve(elm, offset)).getOr(elm) : elm;
     }).bind(function (elm) {
-      return $_byto2911jm0ofu9v.isElement(elm) ? Option.some(elm) : $_8mvo7w18jm0ofub9.parent(elm);
+      return $_7u5fzs11jnlpawv6.isElement(elm) ? Option.some(elm) : $_dr4ybh18jnlpawzt.parent(elm);
     }).map(function (elm) {
       return elm.dom();
     }).getOr(root);
   };
   var getStart$2 = function (root, rng, real) {
     return getEndpointElement(root, rng, true, real, function (elm, offset) {
-      return Math.min($_8mvo7w18jm0ofub9.childNodesCount(elm), offset);
+      return Math.min($_dr4ybh18jnlpawzt.childNodesCount(elm), offset);
     });
   };
   var getEnd = function (root, rng, real) {
@@ -79326,7 +80230,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var skipEmptyTextNodes = function (node, forwards) {
     var orig = node;
-    while (node && $_2oph0b1rjm0ofuee.isText(node) && node.length === 0) {
+    while (node && $_fy28ei1rjnlpax2o.isText(node) && node.length === 0) {
       node = forwards ? node.nextSibling : node.previousSibling;
     }
     return node || orig;
@@ -79407,12 +80311,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
 
-  var each$19 = $_cvczchljm0ofu3z.each;
+  var each$19 = $_1q1txeljnlpawsa.each;
   var isNativeIeSelection = function (rng) {
     return !!rng.select;
   };
   var isAttachedToDom = function (node) {
-    return !!(node && node.ownerDocument) && $_ag822a1ejm0ofuc8.contains(Element$$1.fromDom(node.ownerDocument), Element$$1.fromDom(node));
+    return !!(node && node.ownerDocument) && $_5h7cor1ejnlpax0k.contains(Element$$1.fromDom(node.ownerDocument), Element$$1.fromDom(node));
   };
   var isValidRange = function (rng) {
     if (!rng) {
@@ -79439,10 +80343,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     };
     var getContent = function (args) {
-      return $_a5q8n26xjm0ofvmb.getContent(editor, args);
+      return $_d9gs4y6yjnlpay67.getContent(editor, args);
     };
     var setContent = function (content, args) {
-      return $_bbg97u71jm0ofvnm.setContent(editor, content, args);
+      return $_b3j7u072jnlpaybw.setContent(editor, content, args);
     };
     var getStart = function (real) {
       return getStart$2(editor.getBody(), getRng(), real);
@@ -79494,11 +80398,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (typeof doc === 'undefined' || doc === null) {
         return null;
       }
-      if (editor.bookmark !== undefined && $_2ois1m4vjm0ofv3q.hasFocus(editor) === false) {
-        var bookmark = $_9ay3ds4ljm0ofv1u.getRng(editor);
+      if (editor.bookmark !== undefined && $_8odu5n4yjnlpaxsg.hasFocus(editor) === false) {
+        var bookmark = $_13pqgk4ojnlpaxqr.getRng(editor);
         if (bookmark.isSome()) {
           return bookmark.map(function (r) {
-            return $_dmr2bd6wjm0ofvm8.processRanges(editor, [r])[0];
+            return $_76ma076xjnlpay65.processRanges(editor, [r])[0];
           }).getOr(doc.createRange());
         }
       }
@@ -79512,7 +80416,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       } catch (ex) {
       }
-      rng = $_dmr2bd6wjm0ofvm8.processRanges(editor, [rng])[0];
+      rng = $_76ma076xjnlpay65.processRanges(editor, [rng])[0];
       if (!rng) {
         rng = doc.createRange ? doc.createRange() : doc.body.createTextRange();
       }
@@ -79564,7 +80468,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
         selectedRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
       }
-      if (!rng.collapsed && rng.startContainer === rng.endContainer && sel.setBaseAndExtent && !$_emqeydajm0oftwm.ie) {
+      if (!rng.collapsed && rng.startContainer === rng.endContainer && sel.setBaseAndExtent && !$_cseqobajnlpawll.ie) {
         if (rng.endOffset - rng.startOffset < 2) {
           if (rng.startContainer.hasChildNodes()) {
             node = rng.startContainer.childNodes[rng.startOffset];
@@ -79609,8 +80513,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var normalize = function () {
       var rng = getRng();
       var sel = getSel();
-      if (!$_9u5d8n4fjm0ofv0b.hasMultipleRanges(sel) && hasAnyRanges(editor)) {
-        var normRng = $_a398vx4jjm0ofv1m.normalize(dom, rng);
+      if (!$_533sn84ijnlpaxoe.hasMultipleRanges(sel) && hasAnyRanges(editor)) {
+        var normRng = $_afh56j4mjnlpaxpx.normalize(dom, rng);
         normRng.each(function (normRng) {
           setRng(normRng, isForward());
         });
@@ -79676,10 +80580,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return scrollContainer;
     };
     var scrollIntoView = function (elm, alignToTop) {
-      return $_2fk7dd37jm0ofuq1.scrollElementIntoView(editor, elm, alignToTop);
+      return $_av60ug39jnlpaxee.scrollElementIntoView(editor, elm, alignToTop);
     };
     var placeCaretAt = function (clientX, clientY) {
-      return setRng($_evwow6vjm0ofvm5.fromPoint(clientX, clientY, editor.getDoc()));
+      return setRng($_445zg66wjnlpay63.fromPoint(clientX, clientY, editor.getDoc()));
     };
     var getBoundingClientRect = function () {
       var rng = getRng();
@@ -79728,7 +80632,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return exports;
   };
 
-  var isContentEditableFalse$11 = $_2oph0b1rjm0ofuee.isContentEditableFalse;
+  var isContentEditableFalse$11 = $_fy28ei1rjnlpax2o.isContentEditableFalse;
   var getSelectedNode$1 = getSelectedNode;
   var isAfterContentEditableFalse$2 = isAfterContentEditableFalse;
   var isBeforeContentEditableFalse$2 = isBeforeContentEditableFalse;
@@ -79742,7 +80646,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var isMoveInsideSameBlock = function (from, to) {
     var inSameBlock = isInSameBlock(from, to);
-    if (!inSameBlock && $_2oph0b1rjm0ofuee.isBr(from.getNode())) {
+    if (!inSameBlock && $_fy28ei1rjnlpax2o.isBr(from.getNode())) {
       return true;
     }
     return inSameBlock;
@@ -79790,8 +80694,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     contentEditableFalseNode = getSelectedNode$1(range);
     caretPosition = getNormalizedRangeEndPoint(direction, editor.getBody(), range);
     linePositions = walkerFn(editor.getBody(), isAboveLine(1), caretPosition);
-    nextLinePositions = $_48w2ffmjm0ofu47.filter(linePositions, isLine(1));
-    caretClientRect = $_48w2ffmjm0ofu47.last(caretPosition.getClientRects());
+    nextLinePositions = $_n452lmjnlpawsj.filter(linePositions, isLine(1));
+    caretClientRect = $_n452lmjnlpawsj.last(caretPosition.getClientRects());
     if (isBeforeContentEditableFalse$2(caretPosition) || isBeforeTable(caretPosition)) {
       contentEditableFalseNode = caretPosition.getNode();
     }
@@ -79812,11 +80716,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     if (contentEditableFalseNode) {
       var caretPositions = positionsUntil(direction, editor.getBody(), isAboveLine(1), contentEditableFalseNode);
-      closestNextLineRect = findClosestClientRect($_48w2ffmjm0ofu47.filter(caretPositions, isLine(1)), clientX);
+      closestNextLineRect = findClosestClientRect($_n452lmjnlpawsj.filter(caretPositions, isLine(1)), clientX);
       if (closestNextLineRect) {
         return renderRangeCaret(editor, closestNextLineRect.position.toRange(), true);
       }
-      closestNextLineRect = $_48w2ffmjm0ofu47.last($_48w2ffmjm0ofu47.filter(caretPositions, isLine(0)));
+      closestNextLineRect = $_n452lmjnlpawsj.last($_n452lmjnlpawsj.filter(caretPositions, isLine(0)));
       if (closestNextLineRect) {
         return renderRangeCaret(editor, closestNextLineRect.position.toRange(), true);
       }
@@ -79824,7 +80728,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var createTextBlock = function (editor) {
     var textBlock = editor.dom.create(editor.settings.forced_root_block);
-    if (!$_emqeydajm0oftwm.ie || $_emqeydajm0oftwm.ie >= 11) {
+    if (!$_cseqobajnlpawll.ie || $_cseqobajnlpawll.ie >= 11) {
       textBlock.innerHTML = '<br data-mce-bogus="1">';
     }
     return textBlock;
@@ -79832,8 +80736,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var exitPreBlock = function (editor, direction, range) {
     var pre, caretPos, newBlock;
     var caretWalker = CaretWalker(editor.getBody());
-    var getNextVisualCaretPosition = $_cqjn032ljm0ofukz.curry(getVisualCaretPosition, caretWalker.next);
-    var getPrevVisualCaretPosition = $_cqjn032ljm0ofukz.curry(getVisualCaretPosition, caretWalker.prev);
+    var getNextVisualCaretPosition = $_dv6bef2njnlpax9l.curry(getVisualCaretPosition, caretWalker.next);
+    var getPrevVisualCaretPosition = $_dv6bef2njnlpax9l.curry(getVisualCaretPosition, caretWalker.prev);
     if (range.collapsed && editor.settings.forced_root_block) {
       pre = editor.dom.getParent(range.startContainer, 'PRE');
       if (!pre) {
@@ -79858,8 +80762,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getHorizontalRange = function (editor, forward) {
     var caretWalker = CaretWalker(editor.getBody());
-    var getNextVisualCaretPosition = $_cqjn032ljm0ofukz.curry(getVisualCaretPosition, caretWalker.next);
-    var getPrevVisualCaretPosition = $_cqjn032ljm0ofukz.curry(getVisualCaretPosition, caretWalker.prev);
+    var getNextVisualCaretPosition = $_dv6bef2njnlpax9l.curry(getVisualCaretPosition, caretWalker.next);
+    var getPrevVisualCaretPosition = $_dv6bef2njnlpax9l.curry(getVisualCaretPosition, caretWalker.prev);
     var newRange;
     var direction = forward ? HDirection.Forwards : HDirection.Backwards;
     var getNextPosFn = forward ? getNextVisualCaretPosition : getPrevVisualCaretPosition;
@@ -79947,66 +80851,66 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return pattern.action();
     });
   };
-  var $_b4ex6u76jm0ofvog = {
+  var $_4wmttl77jnlpaycu = {
     match: match$1,
     action: action,
     execute: execute
   };
 
   var executeKeydownOverride = function (editor, caret, evt) {
-    var os = $_4i10pfojm0ofu4r.detect().os;
-    $_b4ex6u76jm0ofvog.execute([
+    var os = $_766rx4ojnlpawtd.detect().os;
+    $_4wmttl77jnlpaycu.execute([
       {
-        keyCode: $_epe5n05vjm0ofva5.RIGHT,
+        keyCode: $_1qv0695yjnlpaxyk.RIGHT,
         action: moveH$1(editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.LEFT,
+        keyCode: $_1qv0695yjnlpaxyk.LEFT,
         action: moveH$1(editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.UP,
+        keyCode: $_1qv0695yjnlpaxyk.UP,
         action: moveV$1(editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DOWN,
+        keyCode: $_1qv0695yjnlpaxyk.DOWN,
         action: moveV$1(editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.RIGHT,
+        keyCode: $_1qv0695yjnlpaxyk.RIGHT,
         action: moveH(editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.LEFT,
+        keyCode: $_1qv0695yjnlpaxyk.LEFT,
         action: moveH(editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.UP,
+        keyCode: $_1qv0695yjnlpaxyk.UP,
         action: moveV(editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DOWN,
+        keyCode: $_1qv0695yjnlpaxyk.DOWN,
         action: moveV(editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.RIGHT,
-        action: $_5tn0iz4ajm0ofuyu.move(editor, caret, true)
+        keyCode: $_1qv0695yjnlpaxyk.RIGHT,
+        action: $_1971nm4djnlpaxmv.move(editor, caret, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.LEFT,
-        action: $_5tn0iz4ajm0ofuyu.move(editor, caret, false)
+        keyCode: $_1qv0695yjnlpaxyk.LEFT,
+        action: $_1971nm4djnlpaxmv.move(editor, caret, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.RIGHT,
+        keyCode: $_1qv0695yjnlpaxyk.RIGHT,
         ctrlKey: !os.isOSX(),
         altKey: os.isOSX(),
-        action: $_5tn0iz4ajm0ofuyu.moveNextWord(editor, caret)
+        action: $_1971nm4djnlpaxmv.moveNextWord(editor, caret)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.LEFT,
+        keyCode: $_1qv0695yjnlpaxyk.LEFT,
         ctrlKey: !os.isOSX(),
         altKey: os.isOSX(),
-        action: $_5tn0iz4ajm0ofuyu.movePrevWord(editor, caret)
+        action: $_1971nm4djnlpaxmv.movePrevWord(editor, caret)
       }
     ], evt).each(function (_) {
       evt.preventDefault();
@@ -80019,16 +80923,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     });
   };
-  var $_debhpy74jm0ofvnz = { setup: setup$7 };
+  var $_61j8yg75jnlpayck = { setup: setup$7 };
 
   var getParentInlines = function (rootElm, startElm) {
-    var parents = $_2rilno3zjm0ofuw7.parentsAndSelf(startElm, rootElm);
+    var parents = $_4b88sj42jnlpaxkd.parentsAndSelf(startElm, rootElm);
     return findIndex(parents, isBlock).fold(constant(parents), function (index) {
       return parents.slice(0, index);
     });
   };
   var hasOnlyOneChild$1 = function (elm) {
-    return $_8mvo7w18jm0ofub9.children(elm).length === 1;
+    return $_dr4ybh18jnlpawzt.children(elm).length === 1;
   };
   var deleteLastPosition = function (forward, editor, target, parentInlines) {
     var isFormatElement$$1 = curry(isFormatElement, editor);
@@ -80036,7 +80940,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return elm.dom();
     });
     if (formatNodes.length === 0) {
-      $_9pvoj844jm0ofuxf.deleteElement(editor, forward, target);
+      $_ezizyx47jnlpaxle.deleteElement(editor, forward, target);
     } else {
       var pos = replaceWithCaretFormat(target.dom(), formatNodes);
       editor.selection.setRng(pos.toRange());
@@ -80048,7 +80952,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var parentInlines = filter(getParentInlines(rootElm, startElm), hasOnlyOneChild$1);
     return last(parentInlines).map(function (target) {
       var fromPos = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-      if ($_85mu9b3sjm0ofuub.willDeleteLastPositionInElement(forward, fromPos, target.dom())) {
+      if ($_dfzzw73vjnlpaxik.willDeleteLastPositionInElement(forward, fromPos, target.dom())) {
         deleteLastPosition(forward, editor, target, parentInlines);
         return true;
       } else {
@@ -80059,71 +80963,71 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var backspaceDelete$5 = function (editor, forward) {
     return editor.selection.isCollapsed() ? deleteCaret$1(editor, forward) : false;
   };
-  var $_88r1zp78jm0ofvos = { backspaceDelete: backspaceDelete$5 };
+  var $_7joyou79jnlpayd3 = { backspaceDelete: backspaceDelete$5 };
 
   var executeKeydownOverride$1 = function (editor, caret, evt) {
-    $_b4ex6u76jm0ofvog.execute([
+    $_4wmttl77jnlpaycu.execute([
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_a427rq41jm0ofuwm.backspaceDelete, editor, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_jcgv344jnlpaxks.backspaceDelete, editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_a427rq41jm0ofuwm.backspaceDelete, editor, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_jcgv344jnlpaxks.backspaceDelete, editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_64ij4v45jm0ofuxw.backspaceDelete, editor, caret, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_5d7kmb48jnlpaxm1.backspaceDelete, editor, caret, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_64ij4v45jm0ofuxw.backspaceDelete, editor, caret, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_5d7kmb48jnlpaxm1.backspaceDelete, editor, caret, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_4q88ke4cjm0ofuzc.backspaceDelete, editor, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_3apnm14fjnlpaxn8.backspaceDelete, editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_4q88ke4cjm0ofuzc.backspaceDelete, editor, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_3apnm14fjnlpaxn8.backspaceDelete, editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_5cqhe240jm0ofuwd.backspaceDelete, editor, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_f5evyu43jnlpaxki.backspaceDelete, editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_5cqhe240jm0ofuwd.backspaceDelete, editor, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_f5evyu43jnlpaxki.backspaceDelete, editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_84azap3qjm0ofutw.backspaceDelete, editor, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_3n8adg3tjnlpaxi5.backspaceDelete, editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_84azap3qjm0ofutw.backspaceDelete, editor, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_3n8adg3tjnlpaxi5.backspaceDelete, editor, true)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_88r1zp78jm0ofvos.backspaceDelete, editor, false)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_7joyou79jnlpayd3.backspaceDelete, editor, false)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_88r1zp78jm0ofvos.backspaceDelete, editor, true)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_7joyou79jnlpayd3.backspaceDelete, editor, true)
       }
     ], evt).each(function (_) {
       evt.preventDefault();
     });
   };
   var executeKeyupOverride = function (editor, evt) {
-    $_b4ex6u76jm0ofvog.execute([
+    $_4wmttl77jnlpaycu.execute([
       {
-        keyCode: $_epe5n05vjm0ofva5.BACKSPACE,
-        action: $_b4ex6u76jm0ofvog.action($_a427rq41jm0ofuwm.paddEmptyElement, editor)
+        keyCode: $_1qv0695yjnlpaxyk.BACKSPACE,
+        action: $_4wmttl77jnlpaycu.action($_jcgv344jnlpaxks.paddEmptyElement, editor)
       },
       {
-        keyCode: $_epe5n05vjm0ofva5.DELETE,
-        action: $_b4ex6u76jm0ofvog.action($_a427rq41jm0ofuwm.paddEmptyElement, editor)
+        keyCode: $_1qv0695yjnlpaxyk.DELETE,
+        action: $_4wmttl77jnlpaycu.action($_jcgv344jnlpaxks.paddEmptyElement, editor)
       }
     ], evt);
   };
@@ -80139,7 +81043,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     });
   };
-  var $_w32c177jm0ofvop = { setup: setup$8 };
+  var $_7bt40278jnlpayd0 = { setup: setup$8 };
 
   var firstNonWhiteSpaceNodeSibling = function (node) {
     while (node) {
@@ -80167,7 +81071,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (root.hasChildNodes()) {
       walker = new TreeWalker(root, root);
       while (node = walker.current()) {
-        if ($_2oph0b1rjm0ofuee.isText(node)) {
+        if ($_fy28ei1rjnlpax2o.isText(node)) {
           rng.setStart(node, 0);
           rng.setEnd(node, 0);
           break;
@@ -80185,7 +81089,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         rng.setEnd(lastNode, 0);
       }
     } else {
-      if ($_2oph0b1rjm0ofuee.isBr(root)) {
+      if ($_fy28ei1rjnlpax2o.isBr(root)) {
         if (root.nextSibling && dom.isBlock(root.nextSibling)) {
           rng.setStartBefore(root);
           rng.setEndBefore(root);
@@ -80227,7 +81131,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return isListItem(Element$$1.fromDom(elm));
     }).isSome();
   };
-  var $_er084q7djm0ofvpv = {
+  var $_f5kh147ejnlpaye2 = {
     moveToCaretPosition: moveToCaretPosition,
     getEditableRoot: getEditableRoot,
     getParentBlock: getParentBlock$2,
@@ -80257,7 +81161,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isFirstOrLastLi = function (containerBlock, parentBlock, first) {
     var node = containerBlock[first ? 'firstChild' : 'lastChild'];
     while (node) {
-      if ($_2oph0b1rjm0ofuee.isElement(node)) {
+      if ($_fy28ei1rjnlpax2o.isElement(node)) {
         break;
       }
       node = node[first ? 'nextSibling' : 'previousSibling'];
@@ -80305,12 +81209,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
     dom.remove(parentBlock);
-    $_er084q7djm0ofvpv.moveToCaretPosition(editor, newBlock);
+    $_f5kh147ejnlpaye2.moveToCaretPosition(editor, newBlock);
   };
-  var $_9ksnsx7cjm0ofvpr = { insert: insert$1 };
+  var $_ejp82b7djnlpaydz = { insert: insert$1 };
 
   var isEmptyAnchor = function (elm) {
-    return elm && elm.nodeName === 'A' && $_cvczchljm0ofu3z.trim($_2bohar2pjm0ofulx.trim(elm.innerText || elm.textContent)).length === 0;
+    return elm && elm.nodeName === 'A' && $_1q1txeljnlpawsa.trim($_90hfb72rjnlpaxae.trim(elm.innerText || elm.textContent)).length === 0;
   };
   var isTableCell$5 = function (node) {
     return node && /^(TD|TH|CAPTION)$/.test(node.nodeName);
@@ -80335,7 +81239,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (dom.isBlock(node)) {
         return;
       }
-      if ($_2oph0b1rjm0ofuee.isElement(node) && !nonEmptyElementsMap[node.nodeName.toLowerCase()]) {
+      if ($_fy28ei1rjnlpax2o.isElement(node) && !nonEmptyElementsMap[node.nodeName.toLowerCase()]) {
         firstChilds.push(node);
       }
     }
@@ -80352,12 +81256,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var normalizeZwspOffset = function (start, container, offset) {
-    if ($_2oph0b1rjm0ofuee.isText(container) === false) {
+    if ($_fy28ei1rjnlpax2o.isText(container) === false) {
       return offset;
     } else if (start) {
-      return offset === 1 && container.data.charAt(offset - 1) === $_2bohar2pjm0ofulx.ZWSP ? 0 : offset;
+      return offset === 1 && container.data.charAt(offset - 1) === $_90hfb72rjnlpaxae.ZWSP ? 0 : offset;
     } else {
-      return offset === container.data.length - 1 && container.data.charAt(offset) === $_2bohar2pjm0ofulx.ZWSP ? container.data.length : offset;
+      return offset === container.data.length - 1 && container.data.charAt(offset) === $_90hfb72rjnlpaxae.ZWSP ? container.data.length : offset;
     }
   };
   var includeZwspInRange = function (rng) {
@@ -80368,7 +81272,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var trimLeadingLineBreaks = function (node) {
     do {
-      if ($_2oph0b1rjm0ofuee.isText(node)) {
+      if ($_fy28ei1rjnlpax2o.isText(node)) {
         node.nodeValue = node.nodeValue.replace(/^[\r\n]+/, '');
       }
       node = node.firstChild;
@@ -80387,9 +81291,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return parent !== root ? editableRoot : root;
   };
   var setForcedBlockAttrs = function (editor, node) {
-    var forcedRootBlockName = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
+    var forcedRootBlockName = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
     if (forcedRootBlockName && forcedRootBlockName.toLowerCase() === node.tagName.toLowerCase()) {
-      editor.dom.setAttribs(node, $_9enitt38jm0ofuq6.getForcedRootBlockAttrs(editor));
+      editor.dom.setAttribs(node, $_c6e09z3ajnlpaxek.getForcedRootBlockAttrs(editor));
     }
   };
   var wrapSelfAndSiblingsInDefaultBlock = function (editor, newBlockName, rng, container, offset) {
@@ -80460,7 +81364,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         block = parentBlock.cloneNode(false);
       }
       caretNode = block;
-      if ($_9enitt38jm0ofuq6.shouldKeepStyles(editor) === false) {
+      if ($_c6e09z3ajnlpaxek.shouldKeepStyles(editor) === false) {
         dom.setAttrib(block, 'style', null);
         dom.setAttrib(block, 'class', null);
       } else {
@@ -80487,20 +81391,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var isCaretAtStartOrEndOfBlock = function (start) {
       var walker, node, name, normalizedOffset;
       normalizedOffset = normalizeZwspOffset(start, container, offset);
-      if ($_2oph0b1rjm0ofuee.isText(container) && (start ? normalizedOffset > 0 : normalizedOffset < container.nodeValue.length)) {
+      if ($_fy28ei1rjnlpax2o.isText(container) && (start ? normalizedOffset > 0 : normalizedOffset < container.nodeValue.length)) {
         return false;
       }
       if (container.parentNode === parentBlock && isAfterLastNodeInContainer && !start) {
         return true;
       }
-      if (start && $_2oph0b1rjm0ofuee.isElement(container) && container === parentBlock.firstChild) {
+      if (start && $_fy28ei1rjnlpax2o.isElement(container) && container === parentBlock.firstChild) {
         return true;
       }
       if (containerAndSiblingName(container, 'TABLE') || containerAndSiblingName(container, 'HR')) {
         return isAfterLastNodeInContainer && !start || !isAfterLastNodeInContainer && start;
       }
       walker = new TreeWalker(container, parentBlock);
-      if ($_2oph0b1rjm0ofuee.isText(container)) {
+      if ($_fy28ei1rjnlpax2o.isText(container)) {
         if (start && normalizedOffset === 0) {
           walker.prev();
         } else if (!start && normalizedOffset === container.nodeValue.length) {
@@ -80508,14 +81412,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         }
       }
       while (node = walker.current()) {
-        if ($_2oph0b1rjm0ofuee.isElement(node)) {
+        if ($_fy28ei1rjnlpax2o.isElement(node)) {
           if (!node.getAttribute('data-mce-bogus')) {
             name = node.nodeName.toLowerCase();
             if (nonEmptyElementsMap[name] && name !== 'br') {
               return false;
             }
           }
-        } else if ($_2oph0b1rjm0ofuee.isText(node) && !/^[ \t\r\n]*$/.test(node.nodeValue)) {
+        } else if ($_fy28ei1rjnlpax2o.isText(node) && !/^[ \t\r\n]*$/.test(node.nodeValue)) {
           return false;
         }
         if (start) {
@@ -80532,25 +81436,25 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       } else {
         newBlock = createNewBlock();
       }
-      if ($_9enitt38jm0ofuq6.shouldEndContainerOnEmptyBlock(editor) && canSplitBlock(dom, containerBlock) && dom.isEmpty(parentBlock)) {
+      if ($_c6e09z3ajnlpaxek.shouldEndContainerOnEmptyBlock(editor) && canSplitBlock(dom, containerBlock) && dom.isEmpty(parentBlock)) {
         newBlock = dom.split(containerBlock, parentBlock);
       } else {
         dom.insertAfter(newBlock, parentBlock);
       }
-      $_er084q7djm0ofvpv.moveToCaretPosition(editor, newBlock);
+      $_f5kh147ejnlpaye2.moveToCaretPosition(editor, newBlock);
     };
-    $_a398vx4jjm0ofv1m.normalize(dom, rng).each(function (normRng) {
+    $_afh56j4mjnlpaxpx.normalize(dom, rng).each(function (normRng) {
       rng.setStart(normRng.startContainer, normRng.startOffset);
       rng.setEnd(normRng.endContainer, normRng.endOffset);
     });
     container = rng.startContainer;
     offset = rng.startOffset;
-    newBlockName = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
+    newBlockName = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
     shiftKey = evt.shiftKey;
-    if ($_2oph0b1rjm0ofuee.isElement(container) && container.hasChildNodes()) {
+    if ($_fy28ei1rjnlpax2o.isElement(container) && container.hasChildNodes()) {
       isAfterLastNodeInContainer = offset > container.childNodes.length - 1;
       container = container.childNodes[Math.min(offset, container.childNodes.length - 1)] || container;
-      if (isAfterLastNodeInContainer && $_2oph0b1rjm0ofuee.isText(container)) {
+      if (isAfterLastNodeInContainer && $_fy28ei1rjnlpax2o.isText(container)) {
         offset = container.nodeValue.length;
       } else {
         offset = 0;
@@ -80574,7 +81478,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     if (/^(LI|DT|DD)$/.test(parentBlockName)) {
       if (dom.isEmpty(parentBlock)) {
-        $_9ksnsx7cjm0ofvpr.insert(editor, createNewBlock, containerBlock, parentBlock, newBlockName);
+        $_ejp82b7djnlpaydz.insert(editor, createNewBlock, containerBlock, parentBlock, newBlockName);
         return;
       }
     }
@@ -80587,12 +81491,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (dom.isEmpty(parentBlock)) {
         emptyBlock(parentBlock);
       }
-      $_er084q7djm0ofvpv.moveToCaretPosition(editor, newBlock);
+      $_f5kh147ejnlpaye2.moveToCaretPosition(editor, newBlock);
     } else if (isCaretAtStartOrEndOfBlock()) {
       insertNewBlockAfter();
     } else if (isCaretAtStartOrEndOfBlock(true)) {
       newBlock = parentBlock.parentNode.insertBefore(createNewBlock(), parentBlock);
-      $_er084q7djm0ofvpv.moveToCaretPosition(editor, containerAndSiblingName(parentBlock, 'HR') ? newBlock : parentBlock);
+      $_f5kh147ejnlpaye2.moveToCaretPosition(editor, containerAndSiblingName(parentBlock, 'HR') ? newBlock : parentBlock);
     } else {
       tmpRng = includeZwspInRange(rng).cloneRange();
       tmpRng.setEndAfter(parentBlock);
@@ -80610,26 +81514,26 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         dom.remove(newBlock);
         insertNewBlockAfter();
       } else {
-        $_er084q7djm0ofvpv.moveToCaretPosition(editor, newBlock);
+        $_f5kh147ejnlpaye2.moveToCaretPosition(editor, newBlock);
       }
     }
     dom.setAttrib(newBlock, 'id', '');
     editor.fire('NewBlock', { newBlock: newBlock });
   };
-  var $_2u5ekg7bjm0ofvph = { insert: insert$2 };
+  var $_dytumn7cjnlpaydl = { insert: insert$2 };
 
   var matchesSelector = function (editor, selector) {
-    return $_er084q7djm0ofvpv.getParentBlock(editor).filter(function (parentBlock) {
-      return selector.length > 0 && $_bdu7ul1gjm0ofucn.is(Element$$1.fromDom(parentBlock), selector);
+    return $_f5kh147ejnlpaye2.getParentBlock(editor).filter(function (parentBlock) {
+      return selector.length > 0 && $_d8v5lf1gjnlpax0y.is(Element$$1.fromDom(parentBlock), selector);
     }).isSome();
   };
   var shouldInsertBr = function (editor) {
-    return matchesSelector(editor, $_9enitt38jm0ofuq6.getBrNewLineSelector(editor));
+    return matchesSelector(editor, $_c6e09z3ajnlpaxek.getBrNewLineSelector(editor));
   };
   var shouldBlockNewLine = function (editor) {
-    return matchesSelector(editor, $_9enitt38jm0ofuq6.getNoNewLineSelector(editor));
+    return matchesSelector(editor, $_c6e09z3ajnlpaxek.getNoNewLineSelector(editor));
   };
-  var $_9nw7r77fjm0ofvqc = {
+  var $_8nqlsa7gjnlpayev = {
     shouldInsertBr: shouldInsertBr,
     shouldBlockNewLine: shouldBlockNewLine
   };
@@ -80640,22 +81544,22 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     { none: [] }
   ]);
   var shouldBlockNewLine$1 = function (editor, shiftKey) {
-    return $_9nw7r77fjm0ofvqc.shouldBlockNewLine(editor);
+    return $_8nqlsa7gjnlpayev.shouldBlockNewLine(editor);
   };
   var isBrMode = function (requiredState) {
     return function (editor, shiftKey) {
-      var brMode = $_9enitt38jm0ofuq6.getForcedRootBlock(editor) === '';
+      var brMode = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor) === '';
       return brMode === requiredState;
     };
   };
   var inListBlock = function (requiredState) {
     return function (editor, shiftKey) {
-      return $_er084q7djm0ofvpv.isListItemParentBlock(editor) === requiredState;
+      return $_f5kh147ejnlpaye2.isListItemParentBlock(editor) === requiredState;
     };
   };
   var inBlock = function (blockName, requiredState) {
     return function (editor, shiftKey) {
-      var state = $_er084q7djm0ofvpv.getParentBlockName(editor) === blockName.toUpperCase();
+      var state = $_f5kh147ejnlpaye2.getParentBlockName(editor) === blockName.toUpperCase();
       return state === requiredState;
     };
   };
@@ -80667,18 +81571,18 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var shouldPutBrInPre$1 = function (requiredState) {
     return function (editor, shiftKey) {
-      return $_9enitt38jm0ofuq6.shouldPutBrInPre(editor) === requiredState;
+      return $_c6e09z3ajnlpaxek.shouldPutBrInPre(editor) === requiredState;
     };
   };
   var inBrContext = function (editor, shiftKey) {
-    return $_9nw7r77fjm0ofvqc.shouldInsertBr(editor);
+    return $_8nqlsa7gjnlpayev.shouldInsertBr(editor);
   };
   var hasShiftKey = function (editor, shiftKey) {
     return shiftKey;
   };
   var canInsertIntoEditableRoot = function (editor) {
-    var forcedRootBlock = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
-    var rootEditable = $_er084q7djm0ofvpv.getEditableRoot(editor.dom, editor.selection.getStart());
+    var forcedRootBlock = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
+    var rootEditable = $_f5kh147ejnlpaye2.getEditableRoot(editor.dom, editor.selection.getStart());
     return rootEditable && editor.schema.isValidChild(rootEditable.nodeName, forcedRootBlock ? forcedRootBlock : 'P');
   };
   var match$2 = function (predicates, action) {
@@ -80690,7 +81594,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   };
   var getAction$1 = function (editor, evt) {
-    return $_cpffbw49jm0ofuyr.evaluateUntil([
+    return $_3eehvl4cjnlpaxms.evaluateUntil([
       match$2([shouldBlockNewLine$1], newLineAction.none()),
       match$2([inSummaryBlock()], newLineAction.br()),
       match$2([
@@ -80733,16 +81637,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       evt.shiftKey
     ]).getOr(newLineAction.none());
   };
-  var $_3140vm7ejm0ofvq5 = { getAction: getAction$1 };
+  var $_5478lv7fjnlpayeb = { getAction: getAction$1 };
 
   var insert$3 = function (editor, evt) {
-    $_3140vm7ejm0ofvq5.getAction(editor, evt).fold(function () {
-      $_9ou6sm4ijm0ofv1b.insert(editor, evt);
+    $_5478lv7fjnlpayeb.getAction(editor, evt).fold(function () {
+      $_ejrlhl4ljnlpaxpg.insert(editor, evt);
     }, function () {
-      $_2u5ekg7bjm0ofvph.insert(editor, evt);
+      $_dytumn7cjnlpaydl.insert(editor, evt);
     }, noop);
   };
-  var $_n4xnf7ajm0ofvpb = { insert: insert$3 };
+  var $_en8mkp7bjnlpaydc = { insert: insert$3 };
 
   var endTypingLevel = function (undoManager) {
     if (undoManager.typing) {
@@ -80760,20 +81664,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (editor.selection.isCollapsed() === false) {
         editor.execCommand('Delete');
       }
-      $_n4xnf7ajm0ofvpb.insert(editor, event);
+      $_en8mkp7bjnlpaydc.insert(editor, event);
     });
   };
   var setup$9 = function (editor) {
     editor.on('keydown', function (event) {
-      if (event.keyCode === $_epe5n05vjm0ofva5.ENTER) {
+      if (event.keyCode === $_1qv0695yjnlpaxyk.ENTER) {
         handleEnterKeyEvent(editor, event);
       }
     });
   };
-  var $_b8ggf079jm0ofvpa = { setup: setup$9 };
+  var $_39dxqo7ajnlpaydb = { setup: setup$9 };
 
   var isValidInsertPoint = function (location, caretPosition) {
-    return isAtStartOrEnd(location) && $_2oph0b1rjm0ofuee.isText(caretPosition.container());
+    return isAtStartOrEnd(location) && $_fy28ei1rjnlpax2o.isText(caretPosition.container());
   };
   var insertNbspAtPosition = function (editor, caretPosition) {
     var container = caretPosition.container();
@@ -80790,9 +81694,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var insertAtCaret$2 = function (editor) {
-    var isInlineTarget = curry($_2p5owi3tjm0ofuul.isInlineTarget, editor);
+    var isInlineTarget = curry($_955v2u3wjnlpaxit.isInlineTarget, editor);
     var caretPosition = CaretPosition$1.fromRangeStart(editor.selection.getRng());
-    var boundaryLocation = $_g6ejg48jm0ofuyh.readLocation(isInlineTarget, editor.getBody(), caretPosition);
+    var boundaryLocation = $_1wxx4j4bjnlpaxmj.readLocation(isInlineTarget, editor.getBody(), caretPosition);
     return boundaryLocation.map(curry(insertAtLocation, editor, caretPosition)).getOr(false);
   };
   var isAtStartOrEnd = function (location) {
@@ -80801,12 +81705,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var insertAtSelection = function (editor) {
     return editor.selection.isCollapsed() ? insertAtCaret$2(editor) : false;
   };
-  var $_auwy9y7hjm0ofvqi = { insertAtSelection: insertAtSelection };
+  var $_55jipx7ijnlpayf1 = { insertAtSelection: insertAtSelection };
 
   var executeKeydownOverride$2 = function (editor, evt) {
-    $_b4ex6u76jm0ofvog.execute([{
-        keyCode: $_epe5n05vjm0ofva5.SPACEBAR,
-        action: $_b4ex6u76jm0ofvog.action($_auwy9y7hjm0ofvqi.insertAtSelection, editor)
+    $_4wmttl77jnlpaycu.execute([{
+        keyCode: $_1qv0695yjnlpaxyk.SPACEBAR,
+        action: $_4wmttl77jnlpaycu.action($_55jipx7ijnlpayf1.insertAtSelection, editor)
       }], evt).each(function (_) {
       evt.preventDefault();
     });
@@ -80818,10 +81722,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     });
   };
-  var $_m82vv7gjm0ofvqh = { setup: setup$10 };
+  var $_4zpmte7hjnlpayez = { setup: setup$10 };
 
   var findBlockCaretContainer = function (editor) {
-    return $_6nhfso29jm0ofuij.descendant(Element$$1.fromDom(editor.getBody()), '*[data-mce-caret]').fold(constant(null), function (elm) {
+    return $_2kbu29jnlpax6t.descendant(Element$$1.fromDom(editor.getBody()), '*[data-mce-caret]').fold(constant(null), function (elm) {
       return elm.dom();
     });
   };
@@ -80854,22 +81758,22 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var setup$11 = function (editor) {
     editor.on('keyup compositionstart', curry(handleBlockContainer, editor));
   };
-  var $_2wdjkr7ijm0ofvqm = { setup: setup$11 };
+  var $_fb76tn7jjnlpayf4 = { setup: setup$11 };
 
   var setup$12 = function (editor) {
-    var caret = $_5tn0iz4ajm0ofuyu.setupSelectedState(editor);
-    $_2wdjkr7ijm0ofvqm.setup(editor);
-    $_debhpy74jm0ofvnz.setup(editor, caret);
-    $_w32c177jm0ofvop.setup(editor, caret);
-    $_b8ggf079jm0ofvpa.setup(editor);
-    $_m82vv7gjm0ofvqh.setup(editor);
+    var caret = $_1971nm4djnlpaxmv.setupSelectedState(editor);
+    $_fb76tn7jjnlpayf4.setup(editor);
+    $_61j8yg75jnlpayck.setup(editor, caret);
+    $_7bt40278jnlpayd0.setup(editor, caret);
+    $_39dxqo7ajnlpaydb.setup(editor);
+    $_4zpmte7hjnlpayez.setup(editor);
   };
-  var $_f1munz73jm0ofvny = { setup: setup$12 };
+  var $_cvby1r74jnlpayci = { setup: setup$12 };
 
   function Quirks (editor) {
-    var each = $_cvczchljm0ofu3z.each;
-    var BACKSPACE = $_epe5n05vjm0ofva5.BACKSPACE, DELETE = $_epe5n05vjm0ofva5.DELETE, dom = editor.dom, selection = editor.selection, settings = editor.settings, parser = editor.parser;
-    var isGecko = $_emqeydajm0oftwm.gecko, isIE = $_emqeydajm0oftwm.ie, isWebKit = $_emqeydajm0oftwm.webkit;
+    var each = $_1q1txeljnlpawsa.each;
+    var BACKSPACE = $_1qv0695yjnlpaxyk.BACKSPACE, DELETE = $_1qv0695yjnlpaxyk.DELETE, dom = editor.dom, selection = editor.selection, settings = editor.settings, parser = editor.parser;
+    var isGecko = $_cseqobajnlpawll.gecko, isIE = $_cseqobajnlpawll.ie, isWebKit = $_cseqobajnlpawll.webkit;
     var mceInternalUrlPrefix = 'data:text/mce-internal,';
     var mceInternalDataType = isIE ? 'Text' : 'URL';
     var setEditorCommandState = function (cmd, state) {
@@ -81005,7 +81909,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           if (!isDefaultPrevented(e) && e.target.nodeName === 'HTML') {
             var body_1 = editor.getBody();
             body_1.blur();
-            $_4oxubkijm0ofu12.setEditorTimeout(editor, function () {
+            $_2nbnh1ijnlpawpi.setEditorTimeout(editor, function () {
               body_1.focus();
             });
           }
@@ -81056,7 +81960,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         var applyAttributes;
         if (!isDefaultPrevented(e) && isSelectionAcrossElements()) {
           applyAttributes = getAttributeApplyFunction();
-          $_4oxubkijm0ofu12.setEditorTimeout(editor, function () {
+          $_2nbnh1ijnlpawpi.setEditorTimeout(editor, function () {
             applyAttributes();
           });
         }
@@ -81078,7 +81982,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     var removeBlockQuoteOnBackSpace = function () {
       editor.on('keydown', function (e) {
         var rng, container, offset, root, parent$$1;
-        if (isDefaultPrevented(e) || e.keyCode !== $_epe5n05vjm0ofva5.BACKSPACE) {
+        if (isDefaultPrevented(e) || e.keyCode !== $_1qv0695yjnlpaxyk.BACKSPACE) {
           return;
         }
         rng = selection.getRng();
@@ -81144,7 +82048,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     var normalizeSelection = function () {
       editor.on('keyup focusin mouseup', function (e) {
-        if (!$_epe5n05vjm0ofva5.modifierPressed(e)) {
+        if (!$_1qv0695yjnlpaxyk.modifierPressed(e)) {
           selection.normalize();
         }
       }, true);
@@ -81167,7 +82071,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         editor.on('click', function (e) {
           var rng;
           if (e.target.nodeName === 'HTML') {
-            if ($_emqeydajm0oftwm.ie > 11) {
+            if ($_cseqobajnlpawll.ie > 11) {
               editor.getBody().focus();
               return;
             }
@@ -81181,9 +82085,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     };
     var blockCmdArrowNavigation = function () {
-      if ($_emqeydajm0oftwm.mac) {
+      if ($_cseqobajnlpawll.mac) {
         editor.on('keydown', function (e) {
-          if ($_epe5n05vjm0ofva5.metaKeyPressed(e) && !e.shiftKey && (e.keyCode === 37 || e.keyCode === 39)) {
+          if ($_1qv0695yjnlpaxyk.metaKeyPressed(e) && !e.shiftKey && (e.keyCode === 37 || e.keyCode === 39)) {
             e.preventDefault();
             editor.selection.getSel().modify('move', e.keyCode === 37 ? 'backward' : 'forward', 'lineboundary');
           }
@@ -81231,7 +82135,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           var internalContent = getMceInternalContent(e);
           if (internalContent && internalContent.id !== editor.id) {
             e.preventDefault();
-            var rng = $_evwow6vjm0ofvm5.fromPoint(e.x, e.y, editor.getDoc());
+            var rng = $_445zg66wjnlpay63.fromPoint(e.x, e.y, editor.getDoc());
             selection.setRng(rng);
             insertClipboardContents(internalContent.html, true);
           }
@@ -81250,7 +82154,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
     removeBlockQuoteOnBackSpace();
     emptyEditorWhenDeleting();
-    if (!$_emqeydajm0oftwm.windowsPhone) {
+    if (!$_cseqobajnlpawll.windowsPhone) {
       normalizeSelection();
     }
     if (isWebKit) {
@@ -81260,7 +82164,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       blockFormSubmitInsideEditor();
       disableBackspaceIntoATable();
       removeAppleInterchangeBrs();
-      if ($_emqeydajm0oftwm.iOS) {
+      if ($_cseqobajnlpawll.iOS) {
         restoreFocusOnKeyDown();
         bodyHeight();
         tapLinksAndImages();
@@ -81268,11 +82172,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         selectAll();
       }
     }
-    if ($_emqeydajm0oftwm.ie >= 11) {
+    if ($_cseqobajnlpawll.ie >= 11) {
       bodyHeight();
       disableBackspaceIntoATable();
     }
-    if ($_emqeydajm0oftwm.ie) {
+    if ($_cseqobajnlpawll.ie) {
       selectAll();
       disableAutoUrlDetect();
       ieInternalDragAndDrop();
@@ -81294,7 +82198,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   }
 
   var isTextBlockNode = function (node) {
-    return $_2oph0b1rjm0ofuee.isElement(node) && isTextBlock(Element$$1.fromDom(node));
+    return $_fy28ei1rjnlpax2o.isElement(node) && isTextBlock(Element$$1.fromDom(node));
   };
   var normalizeSelection$1 = function (editor) {
     var rng = editor.selection.getRng();
@@ -81303,7 +82207,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (CaretPosition.isElementPosition(startPos)) {
       var container = startPos.container();
       if (isTextBlockNode(container)) {
-        $_3belrm2yjm0ofun6.firstPositionIn(container).each(function (pos) {
+        $_32xcvk30jnlpaxbn.firstPositionIn(container).each(function (pos) {
           return rng.setStart(pos.container(), pos.offset());
         });
       }
@@ -81311,12 +82215,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (CaretPosition.isElementPosition(endPos)) {
       var container = startPos.container();
       if (isTextBlockNode(container)) {
-        $_3belrm2yjm0ofun6.lastPositionIn(container).each(function (pos) {
+        $_32xcvk30jnlpaxbn.lastPositionIn(container).each(function (pos) {
           return rng.setEnd(pos.container(), pos.offset());
         });
       }
     }
-    editor.selection.setRng($_a338xv3ojm0ofuts.normalize(rng));
+    editor.selection.setRng($_4fmn0j3qjnlpaxhi.normalize(rng));
   };
   var setup$13 = function (editor) {
     editor.on('click', function (e) {
@@ -81357,9 +82261,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var appendStyle = function (editor, text) {
     var head = Element$$1.fromDom(editor.getDoc().head);
     var tag = Element$$1.fromTag('style');
-    $_cgh0m015jm0ofuao.set(tag, 'type', 'text/css');
-    $_8gbbpa1yjm0ofugu.append(tag, Element$$1.fromText(text));
-    $_8gbbpa1yjm0ofugu.append(head, tag);
+    $_521j8z15jnlpawz7.set(tag, 'type', 'text/css');
+    $_ag89ax1yjnlpax4x.append(tag, Element$$1.fromText(text));
+    $_ag89ax1yjnlpax4x.append(head, tag);
   };
   var createParser = function (editor) {
     var parser = DomParser(editor.settings, editor.schema);
@@ -81424,7 +82328,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var autoFocus = function (editor) {
     if (editor.settings.auto_focus) {
-      $_4oxubkijm0ofu12.setEditorTimeout(editor, function () {
+      $_2nbnh1ijnlpawpi.setEditorTimeout(editor, function () {
         var focusEditor;
         if (editor.settings.auto_focus === true) {
           focusEditor = editor;
@@ -81511,8 +82415,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editor._selectionOverrides = SelectionOverrides(editor);
     setup$14(editor);
     setup$13(editor);
-    $_f1munz73jm0ofvny.setup(editor);
-    $_fskr7e5kjm0ofv7h.setup(editor);
+    $_cvby1r74jnlpayci.setup(editor);
+    $_cjqvqq5njnlpaxw3.setup(editor);
     editor.fire('PreInit');
     if (!settings.browser_spellcheck && !settings.gecko_spellcheck) {
       doc.body.spellcheck = false;
@@ -81528,7 +82432,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     if (settings.protect) {
       editor.on('BeforeSetContent', function (e) {
-        $_cvczchljm0ofu3z.each(settings.protect, function (pattern) {
+        $_1q1txeljnlpawsa.each(settings.protect, function (pattern) {
           e.content = e.content.replace(pattern, function (str) {
             return '<!--mce:protected ' + escape(str) + '-->';
           });
@@ -81548,7 +82452,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     if (editor.contentStyles.length > 0) {
       contentCssText = '';
-      $_cvczchljm0ofu3z.each(editor.contentStyles, function (style) {
+      $_1q1txeljnlpawsa.each(editor.contentStyles, function (style) {
         contentCssText += style + '\r\n';
       });
       editor.dom.addStyle(contentCssText);
@@ -81562,14 +82466,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       appendStyle(editor, settings.content_style);
     }
   };
-  var $_7bsa6g58jm0ofv5z = { initContentBody: initContentBody };
+  var $_8cqui75bjnlpaxue = { initContentBody: initContentBody };
 
   var DOM$3 = DOMUtils$1.DOM;
   var relaxDomain = function (editor, ifr) {
-    if (document.domain !== window.location.hostname && $_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 12) {
-      var bodyUuid = $_1orsp5ijm0ofv7d.uuid('mce');
+    if (document.domain !== window.location.hostname && $_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 12) {
+      var bodyUuid = $_cb5mec5ljnlpaxvz.uuid('mce');
       editor[bodyUuid] = function () {
-        $_7bsa6g58jm0ofv5z.initContentBody(editor);
+        $_8cqui75bjnlpaxue.initContentBody(editor);
       };
       var domainRelaxUrl = 'javascript:(function(){' + 'document.open();document.domain="' + document.domain + '";' + 'var ed = window.parent.tinymce.get("' + editor.id + '");document.write(ed.iframeHTML);' + 'document.close();ed.' + bodyUuid + '(true);})()';
       DOM$3.setAttrib(ifr, 'src', domainRelaxUrl);
@@ -81583,14 +82487,14 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var createIframeElement = function (id, title, height, customAttrs) {
     var iframe = Element$$1.fromTag('iframe');
-    $_cgh0m015jm0ofuao.setAll(iframe, customAttrs);
-    $_cgh0m015jm0ofuao.setAll(iframe, {
+    $_521j8z15jnlpawz7.setAll(iframe, customAttrs);
+    $_521j8z15jnlpawz7.setAll(iframe, {
       id: id + '_ifr',
       frameBorder: '0',
       allowTransparency: 'true',
       title: title
     });
-    $_g5cuhh13jm0ofua1.setAll(iframe, {
+    $_asiuhf13jnlpawvc.setAll(iframe, {
       width: '100%',
       height: normalizeHeight(height),
       display: 'block'
@@ -81599,22 +82503,22 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var getIframeHtml = function (editor) {
     var bodyId, bodyClass, iframeHTML;
-    iframeHTML = $_9enitt38jm0ofuq6.getDocType(editor) + '<html><head>';
-    if ($_9enitt38jm0ofuq6.getDocumentBaseUrl(editor) !== editor.documentBaseUrl) {
+    iframeHTML = $_c6e09z3ajnlpaxek.getDocType(editor) + '<html><head>';
+    if ($_c6e09z3ajnlpaxek.getDocumentBaseUrl(editor) !== editor.documentBaseUrl) {
       iframeHTML += '<base href="' + editor.documentBaseURI.getURI() + '" />';
     }
     iframeHTML += '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />';
-    bodyId = $_9enitt38jm0ofuq6.getBodyId(editor);
-    bodyClass = $_9enitt38jm0ofuq6.getBodyClass(editor);
-    if ($_9enitt38jm0ofuq6.getContentSecurityPolicy(editor)) {
-      iframeHTML += '<meta http-equiv="Content-Security-Policy" content="' + $_9enitt38jm0ofuq6.getContentSecurityPolicy(editor) + '" />';
+    bodyId = $_c6e09z3ajnlpaxek.getBodyId(editor);
+    bodyClass = $_c6e09z3ajnlpaxek.getBodyClass(editor);
+    if ($_c6e09z3ajnlpaxek.getContentSecurityPolicy(editor)) {
+      iframeHTML += '<meta http-equiv="Content-Security-Policy" content="' + $_c6e09z3ajnlpaxek.getContentSecurityPolicy(editor) + '" />';
     }
     iframeHTML += '</head><body id="' + bodyId + '" class="mce-content-body ' + bodyClass + '" data-id="' + editor.id + '"><br></body></html>';
     return iframeHTML;
   };
   var createIframe = function (editor, o) {
     var title = editor.editorManager.translate('Rich Text Area. Press ALT-F9 for menu. ' + 'Press ALT-F10 for toolbar. Press ALT-0 for help');
-    var ifr = createIframeElement(editor.id, title, o.height, $_9enitt38jm0ofuq6.getIframeAttrs(editor)).dom();
+    var ifr = createIframeElement(editor.id, title, o.height, $_c6e09z3ajnlpaxek.getIframeAttrs(editor)).dom();
     ifr.onload = function () {
       ifr.onload = null;
       editor.fire('load');
@@ -81635,19 +82539,19 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editor.getElement().style.display = 'none';
     DOM$3.setAttrib(editor.id, 'aria-hidden', 'true');
     if (!isDomainRelaxed) {
-      $_7bsa6g58jm0ofv5z.initContentBody(editor);
+      $_8cqui75bjnlpaxue.initContentBody(editor);
     }
   };
-  var $_82hwp77mjm0ofvrm = { init: init$1 };
+  var $_aablho7njnlpayfx = { init: init$1 };
 
   var DOM$4 = DOMUtils$1.DOM;
   var initPlugin = function (editor, initializedPlugins, plugin) {
     var Plugin = PluginManager$1.get(plugin);
     var pluginUrl, pluginInstance;
     pluginUrl = PluginManager$1.urls[plugin] || editor.documentBaseUrl.replace(/\/$/, '');
-    plugin = $_cvczchljm0ofu3z.trim(plugin);
-    if (Plugin && $_cvczchljm0ofu3z.inArray(initializedPlugins, plugin) === -1) {
-      $_cvczchljm0ofu3z.each(PluginManager$1.dependencies(plugin), function (dep) {
+    plugin = $_1q1txeljnlpawsa.trim(plugin);
+    if (Plugin && $_1q1txeljnlpawsa.inArray(initializedPlugins, plugin) === -1) {
+      $_1q1txeljnlpawsa.each(PluginManager$1.dependencies(plugin), function (dep) {
         initPlugin(editor, initializedPlugins, dep);
       });
       if (editor.plugins[plugin]) {
@@ -81666,7 +82570,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var initPlugins = function (editor) {
     var initializedPlugins = [];
-    $_cvczchljm0ofu3z.each(editor.settings.plugins.split(/[ ,]/), function (name) {
+    $_1q1txeljnlpawsa.each(editor.settings.plugins.split(/[ ,]/), function (name) {
       initPlugin(editor, initializedPlugins, trimLegacyPrefix(name));
     });
   };
@@ -81766,17 +82670,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     boxInfo = renderThemeUi(editor);
     editor.editorContainer = boxInfo.editorContainer ? boxInfo.editorContainer : null;
     if (settings.content_css) {
-      $_cvczchljm0ofu3z.each($_cvczchljm0ofu3z.explode(settings.content_css), function (u) {
+      $_1q1txeljnlpawsa.each($_1q1txeljnlpawsa.explode(settings.content_css), function (u) {
         editor.contentCSS.push(editor.documentBaseURI.toAbsolute(u));
       });
     }
     if (settings.content_editable) {
-      return $_7bsa6g58jm0ofv5z.initContentBody(editor);
+      return $_8cqui75bjnlpaxue.initContentBody(editor);
     } else {
-      return $_82hwp77mjm0ofvrm.init(editor, boxInfo);
+      return $_aablho7njnlpayfx.init(editor, boxInfo);
     }
   };
-  var $_45y4go55jm0ofv5i = { init: init$2 };
+  var $_99cvli58jnlpaxu5 = { init: init$2 };
 
   var DOM$5 = DOMUtils$1.DOM;
   var hasSkipLoadPrefix = function (name$$1) {
@@ -81810,20 +82714,20 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
   var loadPlugins = function (settings, suffix) {
-    if ($_cvczchljm0ofu3z.isArray(settings.plugins)) {
+    if ($_1q1txeljnlpawsa.isArray(settings.plugins)) {
       settings.plugins = settings.plugins.join(' ');
     }
-    $_cvczchljm0ofu3z.each(settings.external_plugins, function (url, name$$1) {
+    $_1q1txeljnlpawsa.each(settings.external_plugins, function (url, name$$1) {
       PluginManager$1.load(name$$1, url);
       settings.plugins += ' ' + name$$1;
     });
-    $_cvczchljm0ofu3z.each(settings.plugins.split(/[ ,]/), function (plugin) {
-      plugin = $_cvczchljm0ofu3z.trim(plugin);
+    $_1q1txeljnlpawsa.each(settings.plugins.split(/[ ,]/), function (plugin) {
+      plugin = $_1q1txeljnlpawsa.trim(plugin);
       if (plugin && !PluginManager$1.urls[plugin]) {
         if (hasSkipLoadPrefix(plugin)) {
           plugin = plugin.substr(1, plugin.length);
           var dependencies = PluginManager$1.dependencies(plugin);
-          $_cvczchljm0ofu3z.each(dependencies, function (dep) {
+          $_1q1txeljnlpawsa.each(dependencies, function (dep) {
             var defaultSettings = {
               prefix: 'plugins/',
               resource: dep,
@@ -81849,12 +82753,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       loadPlugins(editor.settings, suffix);
       scriptLoader.loadQueue(function () {
         if (!editor.removed) {
-          $_45y4go55jm0ofv5i.init(editor);
+          $_99cvli58jnlpaxu5.init(editor);
         }
       }, editor, function (urls) {
-        $_41f2qr54jm0ofv5a.pluginLoadError(editor, urls[0]);
+        $_2xhw4u57jnlpaxu1.pluginLoadError(editor, urls[0]);
         if (!editor.removed) {
-          $_45y4go55jm0ofv5i.init(editor);
+          $_99cvli58jnlpaxu5.init(editor);
         }
       });
     });
@@ -81872,7 +82776,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     if (!editor.getElement()) {
       return;
     }
-    if (!$_emqeydajm0oftwm.contentEditable) {
+    if (!$_cseqobajnlpawll.contentEditable) {
       return;
     }
     if (!settings.inline) {
@@ -81938,7 +82842,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editor.editorManager.add(editor);
     loadScripts(editor, editor.suffix);
   };
-  var $_fomkye4yjm0ofv4b = { render: render };
+  var $_eajmw851jnlpaxt7 = { render: render };
 
   var add$4 = function (editor, name, settings) {
     var sidebars = editor.sidebars ? editor.sidebars : [];
@@ -81948,10 +82852,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     editor.sidebars = sidebars;
   };
-  var $_fmleui7njm0ofvru = { add: add$4 };
+  var $_g47nm77ojnlpayg6 = { add: add$4 };
 
-  var each$20 = $_cvczchljm0ofu3z.each;
-  var trim$4 = $_cvczchljm0ofu3z.trim;
+  var each$20 = $_1q1txeljnlpawsa.each;
+  var trim$4 = $_1q1txeljnlpawsa.trim;
   var queryParts = 'source protocol authority userInfo user password host port relative path directory file query anchor'.split(' ');
   var DEFAULT_PORTS = {
     ftp: 21,
@@ -82199,7 +83103,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var defaultFormat = 'html';
   var trimEmptyContents = function (editor, html) {
-    var blockName = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
+    var blockName = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
     var emptyRegExp = new RegExp('^(<' + blockName + '[^>]*>(&nbsp;|&#160;|\\s|\xA0|<br \\/>|)<\\/' + blockName + '>[\r\n]*|<br \\/>[\r\n]*)$');
     return html.replace(emptyRegExp, '');
   };
@@ -82212,16 +83116,16 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       editor.fire('BeforeGetContent', args);
     }
     if (args.format === 'raw') {
-      content = $_cvczchljm0ofu3z.trim($_3pw9gt5yjm0ofvao.trimExternal(editor.serializer, body.innerHTML));
+      content = $_1q1txeljnlpawsa.trim($_9cq8vj61jnlpaxzc.trimExternal(editor.serializer, body.innerHTML));
     } else if (args.format === 'text') {
-      content = $_2bohar2pjm0ofulx.trim(body.innerText || body.textContent);
+      content = $_90hfb72rjnlpaxae.trim(body.innerText || body.textContent);
     } else if (args.format === 'tree') {
       return editor.serializer.serialize(body, args);
     } else {
       content = trimEmptyContents(editor, editor.serializer.serialize(body, args));
     }
     if (args.format !== 'text' && !isWsPreserveElement(Element$$1.fromDom(body))) {
-      args.content = $_cvczchljm0ofu3z.trim(content);
+      args.content = $_1q1txeljnlpawsa.trim(content);
     } else {
       args.content = content;
     }
@@ -82306,10 +83210,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     return content instanceof Node$2;
   };
   var moveSelection = function (editor) {
-    if ($_2ois1m4vjm0ofv3q.hasFocus(editor)) {
-      $_3belrm2yjm0ofun6.firstPositionIn(editor.getBody()).each(function (pos) {
+    if ($_8odu5n4yjnlpaxsg.hasFocus(editor)) {
+      $_32xcvk30jnlpaxbn.firstPositionIn(editor.getBody()).each(function (pos) {
         var node = pos.getNode();
-        var caretPos = $_2oph0b1rjm0ofuee.isTable(node) ? $_3belrm2yjm0ofun6.firstPositionIn(node).getOr(pos) : pos;
+        var caretPos = $_fy28ei1rjnlpax2o.isTable(node) ? $_32xcvk30jnlpaxbn.firstPositionIn(node).getOr(pos) : pos;
         editor.selection.setRng(caretPos.toRange());
       });
     }
@@ -82327,7 +83231,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       } else if (/^(UL|OL)$/.test(body.nodeName)) {
         content = '<li>' + padd + '</li>';
       }
-      forcedRootBlockName = $_9enitt38jm0ofuq6.getForcedRootBlock(editor);
+      forcedRootBlockName = $_c6e09z3ajnlpaxek.getForcedRootBlock(editor);
       if (forcedRootBlockName && editor.schema.isValidChild(body.nodeName.toLowerCase(), forcedRootBlockName.toLowerCase())) {
         content = padd;
         content = editor.dom.createHTML(forcedRootBlockName, editor.settings.forced_root_block_attrs, content);
@@ -82343,7 +83247,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           insert: true
         }));
       }
-      args.content = isWsPreserveElement(Element$$1.fromDom(body)) ? content : $_cvczchljm0ofu3z.trim(content);
+      args.content = isWsPreserveElement(Element$$1.fromDom(body)) ? content : $_1q1txeljnlpawsa.trim(content);
       setEditorHtml(editor, args.content);
       if (!args.no_events) {
         editor.fire('SetContent', args);
@@ -82354,7 +83258,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var setContentTree = function (editor, body, content, args) {
     filter$3(editor.parser.getNodeFilters(), editor.parser.getAttributeFilters(), content);
     var html = HtmlSerializer({ validate: editor.validate }, editor.schema).serialize(content);
-    args.content = isWsPreserveElement(Element$$1.fromDom(body)) ? html : $_cvczchljm0ofu3z.trim(html);
+    args.content = isWsPreserveElement(Element$$1.fromDom(body)) ? html : $_1q1txeljnlpawsa.trim(html);
     setEditorHtml(editor, args.content);
     if (!args.no_events) {
       editor.fire('SetContent', args);
@@ -82420,7 +83324,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!editor.inline && body) {
         restoreOriginalStyles(editor);
       }
-      $_bs96es4tjm0ofv3j.fireRemove(editor);
+      $_5atig84wjnlpaxs7.fireRemove(editor);
       editor.editorManager.remove(editor);
       DOM$6.remove(editor.getContainer());
       safeDestroy(_selectionOverrides);
@@ -82451,10 +83355,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var DOM$7 = DOMUtils$1.DOM;
-  var extend$4 = $_cvczchljm0ofu3z.extend;
-  var each$21 = $_cvczchljm0ofu3z.each;
-  var resolve$4 = $_cvczchljm0ofu3z.resolve;
-  var ie$2 = $_emqeydajm0oftwm.ie;
+  var extend$4 = $_1q1txeljnlpawsa.extend;
+  var each$21 = $_1q1txeljnlpawsa.each;
+  var resolve$4 = $_1q1txeljnlpawsa.resolve;
+  var ie$2 = $_cseqobajnlpawll.ie;
   var Editor = function (id, settings, editorManager) {
     var self = this;
     var documentBaseUrl = self.documentBaseUrl = editorManager.documentBaseURL;
@@ -82480,10 +83384,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     self.buttons = {};
     self.menuItems = {};
     if (settings.cache_suffix) {
-      $_emqeydajm0oftwm.cacheSuffix = settings.cache_suffix.replace(/^[\?\&]+/, '');
+      $_cseqobajnlpawll.cacheSuffix = settings.cache_suffix.replace(/^[\?\&]+/, '');
     }
     if (settings.override_viewport === false) {
-      $_emqeydajm0oftwm.overrideViewPort = false;
+      $_cseqobajnlpawll.overrideViewPort = false;
     }
     editorManager.fire('SetupEditor', { editor: self });
     self.execCallback('setup', self);
@@ -82496,13 +83400,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   Editor.prototype = {
     render: function () {
-      $_fomkye4yjm0ofv4b.render(this);
+      $_eajmw851jnlpaxt7.render(this);
     },
     focus: function (skipFocus) {
-      $_2ois1m4vjm0ofv3q.focus(this, skipFocus);
+      $_8odu5n4yjnlpaxsg.focus(this, skipFocus);
     },
     hasFocus: function () {
-      return $_2ois1m4vjm0ofv3q.hasFocus(this);
+      return $_8odu5n4yjnlpaxsg.hasFocus(this);
     },
     execCallback: function (name) {
       var x = [];
@@ -82531,7 +83435,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       return callback.apply(scope || self, Array.prototype.slice.call(arguments, 1));
     },
     translate: function (text) {
-      if (text && $_cvczchljm0ofu3z.is(text, 'string')) {
+      if (text && $_1q1txeljnlpawsa.is(text, 'string')) {
         var lang_1 = this.settings.language || 'en', i18n_1 = this.editorManager.i18n;
         text = i18n_1.data[lang_1 + '.' + text] || text.replace(/\{\#([^\}]+)\}/g, function (a, b) {
           return i18n_1.data[lang_1 + '.' + b] || '{#' + b + '}';
@@ -82561,12 +83465,11 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       if (!settings.text && !settings.icon) {
         settings.icon = name;
       }
-      self.buttons = self.buttons;
       settings.tooltip = settings.tooltip || settings.title;
       self.buttons[name] = settings;
     },
     addSidebar: function (name, settings) {
-      return $_fmleui7njm0ofvru.add(this, name, settings);
+      return $_g47nm77ojnlpayg6.add(this, name, settings);
     },
     addMenuItem: function (name, settings) {
       var self = this;
@@ -82575,7 +83478,6 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           self.execCommand(settings.cmd);
         };
       }
-      self.menuItems = self.menuItems;
       self.menuItems[name] = settings;
     },
     addContextToolbar: function (predicate, items) {
@@ -82589,7 +83491,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         };
       }
       self.contextToolbars.push({
-        id: $_1orsp5ijm0ofv7d.uuid('mcet'),
+        id: $_cb5mec5ljnlpaxvz.uuid('mcet'),
         predicate: predicate,
         items: items
       });
@@ -82855,7 +83757,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var isEditorUIElement = function (elm) {
     return elm.className.toString().indexOf('mce-') !== -1;
   };
-  var $_9m3u097wjm0ofvtt = { isEditorUIElement: isEditorUIElement };
+  var $_598dic7xjnlpayi4 = { isEditorUIElement: isEditorUIElement };
 
   var isManualNodeChange = function (e) {
     return e.type === 'nodechange' && e.selectionChange;
@@ -82871,7 +83773,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var registerFocusOut = function (editor) {
     editor.on('focusout', function () {
-      $_9ay3ds4ljm0ofv1u.store(editor);
+      $_13pqgk4ojnlpaxqr.store(editor);
     });
   };
   var registerMouseUp = function (editor, throttledStore) {
@@ -82880,7 +83782,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
   };
   var registerEditorEvents = function (editor, throttledStore) {
-    var browser = $_4i10pfojm0ofu4r.detect().browser;
+    var browser = $_766rx4ojnlpawtd.detect().browser;
     if (browser.isIE()) {
       registerFocusOut(editor);
     } else {
@@ -82888,13 +83790,13 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     editor.on('keyup nodechange', function (e) {
       if (!isManualNodeChange(e)) {
-        $_9ay3ds4ljm0ofv1u.store(editor);
+        $_13pqgk4ojnlpaxqr.store(editor);
       }
     });
   };
   var register$3 = function (editor) {
     var throttledStore = first$1(function () {
-      $_9ay3ds4ljm0ofv1u.store(editor);
+      $_13pqgk4ojnlpaxqr.store(editor);
     }, 0);
     if (editor.inline) {
       registerPageMouseUp(editor, throttledStore);
@@ -82906,12 +83808,12 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       throttledStore.cancel();
     });
   };
-  var $_84cybh7xjm0ofvtu = { register: register$3 };
+  var $_8hqfi17yjnlpayi5 = { register: register$3 };
 
   var documentFocusInHandler;
   var DOM$8 = DOMUtils$1.DOM;
   var isEditorUIElement$1 = function (elm) {
-    return $_9m3u097wjm0ofvtt.isEditorUIElement(elm);
+    return $_598dic7xjnlpayi4.isEditorUIElement(elm);
   };
   var isUIElement = function (editor, elm) {
     var customSelector = editor ? editor.settings.custom_ui_selector : '';
@@ -82929,7 +83831,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
   var registerEvents = function (editorManager, e) {
     var editor = e.editor;
-    $_84cybh7xjm0ofvtu.register(editor);
+    $_8hqfi17yjnlpayi5.register(editor);
     editor.on('focusin', function () {
       var self$$1 = this;
       var focusedEditor = editorManager.focusedEditor;
@@ -82945,7 +83847,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     });
     editor.on('focusout', function () {
       var self$$1 = this;
-      $_4oxubkijm0ofu12.setEditorTimeout(self$$1, function () {
+      $_2nbnh1ijnlpawpi.setEditorTimeout(self$$1, function () {
         var focusedEditor = editorManager.focusedEditor;
         if (!isUIElement(self$$1, getActiveElement()) && focusedEditor === self$$1) {
           self$$1.fire('blur', { focusedEditor: null });
@@ -82981,7 +83883,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     editorManager.on('AddEditor', curry(registerEvents, editorManager));
     editorManager.on('RemoveEditor', curry(unregisterDocumentEvents, editorManager));
   };
-  var $_aqvodq7vjm0ofvto = {
+  var $_8pld3r7wjnlpayhz = {
     setup: setup$15,
     isEditorUIElement: isEditorUIElement$1,
     isUIElement: isUIElement
@@ -82989,7 +83891,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var data = {};
   var code = 'en';
-  var $_5hzodx7yjm0ofvu1 = {
+  var $_f6nmn17zjnlpayic = {
     setCode: function (newCode) {
       if (newCode) {
         code = newCode;
@@ -83013,28 +83915,28 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     translate: function (text) {
       var langData = data[code] || {};
       var toString = function (obj) {
-        if ($_cvczchljm0ofu3z.is(obj, 'function')) {
+        if ($_1q1txeljnlpawsa.is(obj, 'function')) {
           return Object.prototype.toString.call(obj);
         }
         return !isEmpty(obj) ? '' + obj : '';
       };
       var isEmpty = function (text) {
-        return text === '' || text === null || $_cvczchljm0ofu3z.is(text, 'undefined');
+        return text === '' || text === null || $_1q1txeljnlpawsa.is(text, 'undefined');
       };
       var getLangData = function (text) {
         text = toString(text);
-        return $_cvczchljm0ofu3z.hasOwn(langData, text) ? toString(langData[text]) : text;
+        return $_1q1txeljnlpawsa.hasOwn(langData, text) ? toString(langData[text]) : text;
       };
       if (isEmpty(text)) {
         return '';
       }
-      if ($_cvczchljm0ofu3z.is(text, 'object') && $_cvczchljm0ofu3z.hasOwn(text, 'raw')) {
+      if ($_1q1txeljnlpawsa.is(text, 'object') && $_1q1txeljnlpawsa.hasOwn(text, 'raw')) {
         return toString(text.raw);
       }
-      if ($_cvczchljm0ofu3z.is(text, 'array')) {
+      if ($_1q1txeljnlpawsa.is(text, 'array')) {
         var values_1 = text.slice(1);
         text = getLangData(text[0]).replace(/\{([0-9]+)\}/g, function ($1, $2) {
-          return $_cvczchljm0ofu3z.hasOwn(values_1, $2) ? toString(values_1[$2]) : $1;
+          return $_1q1txeljnlpawsa.hasOwn(values_1, $2) ? toString(values_1[$2]) : $1;
         });
       }
       return getLangData(text).replace(/{context:\w+}$/, '');
@@ -83043,9 +83945,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var DOM$9 = DOMUtils$1.DOM;
-  var explode$4 = $_cvczchljm0ofu3z.explode;
-  var each$22 = $_cvczchljm0ofu3z.each;
-  var extend$5 = $_cvczchljm0ofu3z.extend;
+  var explode$4 = $_1q1txeljnlpawsa.explode;
+  var each$22 = $_1q1txeljnlpawsa.each;
+  var extend$5 = $_1q1txeljnlpawsa.extend;
   var instanceCounter = 0;
   var beforeUnloadDelegate;
   var EditorManager;
@@ -83108,10 +84010,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     defaultSettings: {},
     $: DomQuery,
     majorVersion: '4',
-    minorVersion: '8.3',
-    releaseDate: '2018-09-13',
+    minorVersion: '8.4',
+    releaseDate: '2018-10-23',
     editors: legacyEditors,
-    i18n: $_5hzodx7yjm0ofvu1,
+    i18n: $_f6nmn17zjnlpayic,
     activeEditor: null,
     settings: {},
     setup: function () {
@@ -83153,7 +84055,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       self$$1.documentBaseURL = documentBaseURL;
       self$$1.baseURI = new URI(self$$1.baseURL);
       self$$1.suffix = suffix;
-      $_aqvodq7vjm0ofvto.setup(self$$1);
+      $_8pld3r7wjnlpayhz.setup(self$$1);
     },
     overrideDefaults: function (defaultSettings) {
       var baseUrl, suffix;
@@ -83175,7 +84077,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     init: function (settings) {
       var self$$1 = this;
       var result, invalidInlineTargets;
-      invalidInlineTargets = $_cvczchljm0ofu3z.makeMap('area base basefont br col frame hr img input isindex link meta param embed source wbr track ' + 'colgroup option tbody tfoot thead tr script noscript style textarea video audio iframe object menu', ' ');
+      invalidInlineTargets = $_1q1txeljnlpawsa.makeMap('area base basefont br col frame hr img input isindex link meta param embed source wbr track ' + 'colgroup option tbody tfoot thead tr script noscript style textarea video audio iframe object menu', ' ');
       var isInvalidInlineTarget = function (settings, elm) {
         return settings.inline && elm.tagName.toLowerCase() in invalidInlineTargets;
       };
@@ -83204,8 +84106,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       };
       var findTargets = function (settings) {
         var l, targets = [];
-        if ($_emqeydajm0oftwm.ie && $_emqeydajm0oftwm.ie < 11) {
-          $_41f2qr54jm0ofv5a.initError('TinyMCE does not support the browser you are using. For a list of supported' + ' browsers please see: https://www.tinymce.com/docs/get-started/system-requirements/');
+        if ($_cseqobajnlpawll.ie && $_cseqobajnlpawll.ie < 11) {
+          $_2xhw4u57jnlpaxu1.initError('TinyMCE does not support the browser you are using. For a list of supported' + ' browsers please see: https://www.tinymce.com/docs/get-started/system-requirements/');
           return [];
         }
         if (settings.types) {
@@ -83277,7 +84179,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         targets = DomQuery.unique(findTargets(settings));
         if (settings.types) {
           each$22(settings.types, function (type) {
-            $_cvczchljm0ofu3z.each(targets, function (elm) {
+            $_1q1txeljnlpawsa.each(targets, function (elm) {
               if (DOM$9.is(elm, type.selector)) {
                 createEditor(createId(elm), extend$5({}, settings, type), elm);
                 return false;
@@ -83287,10 +84189,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           });
           return;
         }
-        $_cvczchljm0ofu3z.each(targets, function (elm) {
+        $_1q1txeljnlpawsa.each(targets, function (elm) {
           purgeDestroyedEditor(self$$1.get(elm.id));
         });
-        targets = $_cvczchljm0ofu3z.grep(targets, function (elm) {
+        targets = $_1q1txeljnlpawsa.grep(targets, function (elm) {
           return !self$$1.get(elm.id);
         });
         if (targets.length === 0) {
@@ -83298,7 +84200,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
         } else {
           each$22(targets, function (elm) {
             if (isInvalidInlineTarget(settings, elm)) {
-              $_41f2qr54jm0ofv5a.initError('Could not initialize inline editor on invalid inline target element', elm);
+              $_2xhw4u57jnlpaxu1.initError('Could not initialize inline editor on invalid inline target element', elm);
             } else {
               createEditor(createId(elm), settings, elm);
             }
@@ -83426,10 +84328,10 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       });
     },
     addI18n: function (code, items) {
-      $_5hzodx7yjm0ofvu1.add(code, items);
+      $_f6nmn17zjnlpayic.add(code, items);
     },
     translate: function (text) {
-      return $_5hzodx7yjm0ofvu1.translate(text);
+      return $_f6nmn17zjnlpayic.translate(text);
     },
     setActive: function (editor) {
       var activeEditor = this.activeEditor;
@@ -83442,17 +84344,17 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       this.activeEditor = editor;
     }
   };
-  extend$5(EditorManager, $_g890eb4qjm0ofv31);
+  extend$5(EditorManager, $_c8v03c4tjnlpaxrw);
   EditorManager.setup();
   var EditorManager$1 = EditorManager;
 
   function RangeUtils(dom) {
     var walk = function (rng, callback) {
-      return $_5f1qhm3bjm0ofuqj.walk(dom, rng, callback);
+      return $_6wozuu3djnlpaxew.walk(dom, rng, callback);
     };
-    var split = $_91rr1e68jm0ofvct.split;
+    var split = $_fvyfxh69jnlpay1e.split;
     var normalize = function (rng) {
-      return $_a398vx4jjm0ofv1m.normalize(dom, rng).fold(constant(false), function (normalizedRng) {
+      return $_afh56j4mjnlpaxpx.normalize(dom, rng).fold(constant(false), function (normalizedRng) {
         rng.setStart(normalizedRng.startContainer, normalizedRng.startOffset);
         rng.setEnd(normalizedRng.endContainer, normalizedRng.endOffset);
         return true;
@@ -83465,8 +84367,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     };
   }
   (function (RangeUtils) {
-    RangeUtils.compareRanges = $_5mckc04kjm0ofv1t.isEq;
-    RangeUtils.getCaretRangeFromPoint = $_evwow6vjm0ofvm5.fromPoint;
+    RangeUtils.compareRanges = $_3s8g9y4njnlpaxqj.isEq;
+    RangeUtils.getCaretRangeFromPoint = $_445zg66wjnlpay63.fromPoint;
     RangeUtils.getSelectedNode = getSelectedNode;
     RangeUtils.getNode = getNode;
   }(RangeUtils || (RangeUtils = {})));
@@ -83569,7 +84471,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   var fromClientRect = function (clientRect) {
     return create$3(clientRect.left, clientRect.top, clientRect.width, clientRect.height);
   };
-  var $_9gs2cr80jm0ofvua = {
+  var $_f1a1rs81jnlpayiu = {
     inflate: inflate,
     relativePosition: relativePosition,
     findBestRelativePosition: findBestRelativePosition,
@@ -83580,7 +84482,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
   };
 
   var types = {};
-  var $_3oesov81jm0ofvue = {
+  var $_4cmhbp82jnlpayiz = {
     add: function (type, typeClass) {
       types[type.toLowerCase()] = typeClass;
     },
@@ -83615,8 +84517,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
 
-  var each$23 = $_cvczchljm0ofu3z.each;
-  var extend$6 = $_cvczchljm0ofu3z.extend;
+  var each$23 = $_1q1txeljnlpawsa.each;
+  var extend$6 = $_1q1txeljnlpawsa.extend;
   var extendClass;
   var initializing;
   var Class$1 = function () {
@@ -83896,7 +84798,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
     return '' + o;
   };
-  var $_30te6084jm0ofvun = {
+  var $_aw5rjw85jnlpayja = {
     serialize: serialize,
     parse: function (text) {
       try {
@@ -83906,7 +84808,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     }
   };
 
-  var $_52vexs85jm0ofvuu = {
+  var $_oa3la86jnlpayji = {
     callbacks: {},
     count: 0,
     send: function (settings) {
@@ -83947,7 +84849,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       settings.async = settings.async === false ? false : true;
       settings.data = settings.data || '';
       XHR.fire('beforeInitialize', { settings: settings });
-      xhr = new XMLHttpRequest();
+      xhr = XMLHttpRequest();
       if (xhr) {
         if (xhr.overrideMimeType) {
           xhr.overrideMimeType(settings.content_type);
@@ -83960,7 +84862,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           xhr.setRequestHeader('Content-Type', settings.content_type);
         }
         if (settings.requestheaders) {
-          $_cvczchljm0ofu3z.each(settings.requestheaders, function (header) {
+          $_1q1txeljnlpawsa.each(settings.requestheaders, function (header) {
             xhr.setRequestHeader(header.key, header.value);
           });
         }
@@ -83977,9 +84879,9 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       }
     }
   };
-  $_cvczchljm0ofu3z.extend(XHR, $_g890eb4qjm0ofv31);
+  $_1q1txeljnlpawsa.extend(XHR, $_c8v03c4tjnlpaxrw);
 
-  var extend$7 = $_cvczchljm0ofu3z.extend;
+  var extend$7 = $_1q1txeljnlpawsa.extend;
   var JSONRequest = function (settings) {
     this.settings = extend$7({}, settings);
     this.count = 0;
@@ -83992,7 +84894,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       var ecb = args.error, scb = args.success;
       args = extend$7(this.settings, args);
       args.success = function (c, x) {
-        c = $_30te6084jm0ofvun.parse(c);
+        c = $_aw5rjw85jnlpayja.parse(c);
         if (typeof c === 'undefined') {
           c = { error: 'JSON Parse error.' };
         }
@@ -84007,7 +84909,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
           ecb.call(args.error_scope || args.scope, ty, x);
         }
       };
-      args.data = $_30te6084jm0ofvun.serialize({
+      args.data = $_aw5rjw85jnlpayja.serialize({
         id: args.id || 'c' + this.count++,
         method: args.method,
         params: args.params
@@ -84066,21 +84968,21 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
 
   var tinymce = EditorManager$1;
   var publicApi = {
-    geom: { Rect: $_9gs2cr80jm0ofvua },
+    geom: { Rect: $_f1a1rs81jnlpayiu },
     util: {
       Promise: promiseObj,
-      Delay: $_4oxubkijm0ofu12,
-      Tools: $_cvczchljm0ofu3z,
-      VK: $_epe5n05vjm0ofva5,
+      Delay: $_2nbnh1ijnlpawpi,
+      Tools: $_1q1txeljnlpawsa,
+      VK: $_1qv0695yjnlpaxyk,
       URI: URI,
       Class: Class$1,
       EventDispatcher: Dispatcher,
-      Observable: $_g890eb4qjm0ofv31,
-      I18n: $_5hzodx7yjm0ofvu1,
+      Observable: $_c8v03c4tjnlpaxrw,
+      I18n: $_f6nmn17zjnlpayic,
       XHR: XHR,
-      JSON: $_30te6084jm0ofvun,
+      JSON: $_aw5rjw85jnlpayja,
       JSONRequest: JSONRequest,
-      JSONP: $_52vexs85jm0ofvuu,
+      JSONP: $_oa3la86jnlpayji,
       LocalStorage: LocalStorage,
       Color: Color
     },
@@ -84100,7 +85002,7 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     },
     html: {
       Styles: Styles,
-      Entities: $_7ruegc1sjm0ofuek,
+      Entities: $_bea7j51sjnlpax2u,
       Node: Node$2,
       Schema: Schema,
       SaxParser: SaxParser$1,
@@ -84108,8 +85010,8 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
       Writer: Writer,
       Serializer: HtmlSerializer
     },
-    ui: { Factory: $_3oesov81jm0ofvue },
-    Env: $_emqeydajm0oftwm,
+    ui: { Factory: $_4cmhbp82jnlpayiz },
+    Env: $_cseqobajnlpawll,
     AddOnManager: AddOnManager,
     Annotator: Annotator,
     Formatter: Formatter,
@@ -84120,35 +85022,35 @@ exports.unstable_unsubscribe = unstable_unsubscribe;
     EditorObservable: EditorObservable$1,
     Shortcuts: Shortcuts,
     Editor: Editor,
-    FocusManager: $_9m3u097wjm0ofvtt,
+    FocusManager: $_598dic7xjnlpayi4,
     EditorManager: EditorManager$1,
     DOM: DOMUtils$1.DOM,
     ScriptLoader: ScriptLoader.ScriptLoader,
     PluginManager: AddOnManager.PluginManager,
     ThemeManager: AddOnManager.ThemeManager,
-    trim: $_cvczchljm0ofu3z.trim,
-    isArray: $_cvczchljm0ofu3z.isArray,
-    is: $_cvczchljm0ofu3z.is,
-    toArray: $_cvczchljm0ofu3z.toArray,
-    makeMap: $_cvczchljm0ofu3z.makeMap,
-    each: $_cvczchljm0ofu3z.each,
-    map: $_cvczchljm0ofu3z.map,
-    grep: $_cvczchljm0ofu3z.grep,
-    inArray: $_cvczchljm0ofu3z.inArray,
-    extend: $_cvczchljm0ofu3z.extend,
-    create: $_cvczchljm0ofu3z.create,
-    walk: $_cvczchljm0ofu3z.walk,
-    createNS: $_cvczchljm0ofu3z.createNS,
-    resolve: $_cvczchljm0ofu3z.resolve,
-    explode: $_cvczchljm0ofu3z.explode,
-    _addCacheSuffix: $_cvczchljm0ofu3z._addCacheSuffix,
-    isOpera: $_emqeydajm0oftwm.opera,
-    isWebKit: $_emqeydajm0oftwm.webkit,
-    isIE: $_emqeydajm0oftwm.ie,
-    isGecko: $_emqeydajm0oftwm.gecko,
-    isMac: $_emqeydajm0oftwm.mac
+    trim: $_1q1txeljnlpawsa.trim,
+    isArray: $_1q1txeljnlpawsa.isArray,
+    is: $_1q1txeljnlpawsa.is,
+    toArray: $_1q1txeljnlpawsa.toArray,
+    makeMap: $_1q1txeljnlpawsa.makeMap,
+    each: $_1q1txeljnlpawsa.each,
+    map: $_1q1txeljnlpawsa.map,
+    grep: $_1q1txeljnlpawsa.grep,
+    inArray: $_1q1txeljnlpawsa.inArray,
+    extend: $_1q1txeljnlpawsa.extend,
+    create: $_1q1txeljnlpawsa.create,
+    walk: $_1q1txeljnlpawsa.walk,
+    createNS: $_1q1txeljnlpawsa.createNS,
+    resolve: $_1q1txeljnlpawsa.resolve,
+    explode: $_1q1txeljnlpawsa.explode,
+    _addCacheSuffix: $_1q1txeljnlpawsa._addCacheSuffix,
+    isOpera: $_cseqobajnlpawll.opera,
+    isWebKit: $_cseqobajnlpawll.webkit,
+    isIE: $_cseqobajnlpawll.ie,
+    isGecko: $_cseqobajnlpawll.gecko,
+    isMac: $_cseqobajnlpawll.mac
   };
-  tinymce = $_cvczchljm0ofu3z.extend(tinymce, publicApi);
+  tinymce = $_1q1txeljnlpawsa.extend(tinymce, publicApi);
   var Tinymce = tinymce;
 
   var exportToModuleLoaders = function (tinymce) {
