@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Post;
 use App\Posttype;
+use App\Postmeta;
 use Illuminate\Http\Request;
 
 class PostController extends Controller
@@ -52,7 +53,12 @@ class PostController extends Controller
 
         $post->save();
 
-        return redirect()->back(['post_type' => $post->type, 'post_id' => $post->id])->with('message', 'Post created successfully');
+        $post_type = \App\Posttype::find($post->type)->first()['name'];
+
+        return redirect()->route('editor', [
+            'type' => $post_type,
+            'id' => $post->id
+        ])->with('message', 'Post created successfully')->with('type', 'post')->with('id', $post->id);
     }
 
     /**
@@ -125,7 +131,7 @@ class PostController extends Controller
         $post = \App\Post::find((int)$request->id);
         // Delete post
         $post->delete();
-        return redirect()->route('post')->with('message', 'Post removed successfully.');
+        return redirect()->route('posts')->with('message', 'Post removed successfully.');
     }
 
     /**
@@ -148,7 +154,7 @@ class PostController extends Controller
             $post = \App\Post::find($post_id);
             if ($post !== null && $post->count()) {
                 $data['update'] = true;
-                $data['post'] = $post->first();
+                $data['post'] = $post;
             }
             else {
                 return redirect()->route('posts', $post_type->name)->with('message', "Post doesn't exist");

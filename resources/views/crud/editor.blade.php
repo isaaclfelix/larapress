@@ -18,22 +18,38 @@ if ($update) {
     $excerpt = $post->excerpt;
 }
 */
-$labels = null;
-$post_type_meta = App\Posttypesmeta::where([
+// Labels
+$labels = App\Posttypesmeta::where([
     ['posttype_id', '=', $post_type->id],
-    ['meta_key', '=', 'options'],
+    ['meta_key', '=', 'labels']
 ]);
-$supports = array(
-    'title',
-    'editor',
-    'excerpt'
-);
-if ($post_type_meta !== null && $post_type_meta->count()) {
+if ($labels !== null && $labels->count()) {
     //$labels = json_decode(json_decode($post_type_meta->first())->meta_value, true)['labels'];
-    $post_type_meta = $post_type_meta->first();
-    $meta_value = json_decode($post_type_meta->meta_value, true);
-    $labels = $meta_value['labels'];
-    $supports = $meta_value['supports'];
+    $labels = $labels->first();
+    $labels = json_decode($labels->meta_value, true);
+}
+else {
+    $labels = [
+        'singular' => 'Post',
+        'plural' => 'Posts'
+    ];
+}
+// Supports
+$supports = App\Posttypesmeta::where([
+    ['posttype_id', '=', $post_type->id],
+    ['meta_key', '=', 'supports']
+]);
+if ($supports !== null && $supports->count()) {
+    $supports = $supports->first();
+    $supports = json_decode($supports->meta_value, true);
+}
+else {
+    // Default supports
+    $supports = array(
+        'title',
+        'editor',
+        'excerpt'
+    );
 }
 ?>
 @extends('layouts.dashboard')
