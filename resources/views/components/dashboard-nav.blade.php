@@ -53,12 +53,12 @@
     </a>
   </li>
   <li class="nav-item">
-    <a href="{{ route('profile') }}" class="pt-2 pb-2 text-light nav-link @if (Route::currentRouteName() === 'profile') active @endif">
+    <a href="{{ route('users') }}" class="pt-2 pb-2 text-light nav-link @if (Route::currentRouteName() === 'users') active @endif">
       <div class="icon">
         <i class="fas fa-user"></i>
       </div>
       <div class="label">
-        Profile
+        Users
       </div>
     </a>
   </li>

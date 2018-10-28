@@ -137,7 +137,24 @@ class DashboardController extends Controller
     }
 
     /**
-     * Show the user's profile tab in the application dashboard.
+     * Show the posts in the application dashboard.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function users()
+    {
+        $labels = [
+            'singular' => 'User',
+            'plural' => 'Users'
+        ];
+        $data = [
+            'labels' => $labels
+        ];
+        return view('dashboard.users', $data);
+    }
+
+    /**
+     * Show the users tab in the application dashboard.
      *
      * @return \Illuminate\Http\Response
      */

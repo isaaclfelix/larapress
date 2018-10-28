@@ -39,7 +39,8 @@ Route::prefix('admin')->group(function() {
     Route::get('/editor/{post_type?}/{post_id?}', 'PostController@editor')->name('editor');
 
     // Profile panel route
-    Route::get('/profile', 'DashboardController@profile')->name('profile');
+    Route::get('/users', 'DashboardController@users')->name('users');
+    Route::get('/user/{id?}', 'DashboardController@profile')->name('profile');
 
     // Settings panel route
     Route::get('/settings', 'DashboardController@settings')->name('settings');
