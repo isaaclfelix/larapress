@@ -1,5 +1,7 @@
 <?php
-$posts = App\Post::all();
+$posts = App\Post::where([
+  ['type', '=', $post_type_id]
+])->get();
 ?>
 @extends('layouts.dashboard')
 
@@ -25,18 +27,21 @@ $posts = App\Post::all();
 <table class="table table-striped mt-3">
   <thead>
     <tr>
-      <th scope="col">{{ $labels['singular'] }} ID</th>
-      <th scope="col">{{ $labels['singular'] }} Title</th>
-      <th scope="col">{{ $labels['singular'] }} Route</th>
-      <th scope="col">Delete</th>
+      <th scope="col"><input type="checkbox" /></th>
+      <th scope="col">Title</th>
+      <th scope="col">Author</th>
+      <th scope="col">Date</th>
+      <th scope="col">Remove</th>
+      <th scope="col"><i class="fas fa-sort"></i></th>
     </tr>
   </thead>
   <tbody>
     @foreach ($posts as $post)
     <tr>
-      <td>{{ $post->id }}</td>
-      <td><a href="{{ route('crud', ['post_id' => $post->id, 'post_type' => $post->type]) }}">{{ $post->title }}</a></td>
-      <td>{{ $post->route }}</td>
+      <th><input type="checkbox" /></th>
+      <td><a href="{{ route('editor', ['post_type' => $post_type, 'post_id' => $post->id]) }}">{{ $post->title }}</a></td>
+      <td>{{ $post->author }}</td>
+      <td>{{ $post->updated_at }}</td>
       <td>
         <form method="POST" action="{{ route('post') }}">
           @method('DELETE')
@@ -45,6 +50,7 @@ $posts = App\Post::all();
           <button class="btn btn-primary" type="submit"><i class="fa fa-trash"></i> Remove</button>
         </form>
       </td>
+      <td></td>
     </tr>
     @endforeach
   </tbody>

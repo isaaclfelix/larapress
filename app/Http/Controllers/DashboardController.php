@@ -49,10 +49,21 @@ class DashboardController extends Controller
             'singular' => 'Post',
             'plural' => 'Posts'
         );
-        $post_type_id = \App\Posttype::where('name', 'post')->first()->id;
         $post_type = \App\Posttype::where('name', $post_type);
         if ($post_type !== null && $post_type->count()) {
-            $post_type_id = $post_type->first()->id;
+            $post_type = $post_type->first();
+            $post_type_id = $post_type->id;
+            $post_type = $post_type->name;
+
+            if ($post_type === 'page') {
+                return redirect()->route('pages');
+            }
+            if ($post_type === 'medium') {
+                return redirect()->route('media');
+            }
+        }
+        else {
+            return redirect()->route('posts')->with('message', "Post type doesn't exist");
         }
         $post_type_meta = \App\Posttypesmeta::where([
             ['posttype_id', '=', $post_type_id],
@@ -63,7 +74,8 @@ class DashboardController extends Controller
         }
         $data = array(
             'labels' => $labels,
-            'post_type' => $post_type->first()->name
+            'post_type' => $post_type,
+            'post_type_id' => $post_type_id
         );
         return view('dashboard.posts', $data);
     }
@@ -90,7 +102,8 @@ class DashboardController extends Controller
         }
         $data = array(
             'labels' => $labels,
-            'post_type' => $post_type->name
+            'post_type' => $post_type->name,
+            'post_type_id' => $post_type_id
         );
         return view('dashboard.posts', $data);
     }
@@ -117,7 +130,8 @@ class DashboardController extends Controller
         }
         $data = array(
             'labels' => $labels,
-            'post_type' => $post_type->name
+            'post_type' => $post_type->name,
+            'post_type_id' => $post_type_id
         );
         return view('dashboard.posts', $data);
     }
