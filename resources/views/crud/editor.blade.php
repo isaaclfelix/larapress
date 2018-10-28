@@ -75,7 +75,7 @@ if ($post_type_meta !== null && $post_type_meta->count()) {
     var post = {
         id: 0,
         parent: 0,
-        author: 0,
+        author: {{ Auth::user()->id }},
         type: "<?php echo $post_type->id; ?>", // Change this for non harcoded post type
         status: "publish",
         // Post contents
